@@ -1,0 +1,1895 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0, user-scalable=no">
+  <title>Color Bowl Match - 2 Player Arcade</title>
+  <meta name="description" content="A fast, colorful 2-player competitive arcade game where players race to collect matching colored balls into their bowls!">
+  <style>
+    /* Modern, Playful Aesthetic */
+    :root {
+      --bg-dark: #0b0f19;
+      --bg-card: rgba(18, 24, 38, 0.85);
+      --border-glow: rgba(99, 102, 241, 0.3);
+      --p1-blue: #38bdf8;
+      --p1-glow: rgba(56, 189, 248, 0.5);
+      --p2-red: #fb7185;
+      --p2-glow: rgba(251, 113, 133, 0.5);
+      --gold: #facc15;
+    }
+
+    * {
+      box-sizing: border-box;
+      margin: 0;
+      padding: 0;
+      user-select: none;
+      -webkit-user-select: none;
+    }
+
+    body {
+      background: radial-gradient(circle at 50% 30%, #172033 0%, #090d16 100%);
+      color: #f8fafc;
+      font-family: system-ui, -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, 'Outfit', 'Fredoka', sans-serif;
+      min-height: 100vh;
+      display: flex;
+      flex-direction: column;
+      align-items: center;
+      justify-content: center;
+      overflow: hidden;
+      touch-action: none;
+    }
+
+    /* Top HUD / Header Bar */
+    header#game-hud {
+      width: 100%;
+      max-width: 1200px;
+      display: flex;
+      align-items: center;
+      justify-content: space-between;
+      padding: 8px 20px;
+      position: relative;
+      z-index: 10;
+    }
+
+    .player-hud {
+      display: flex;
+      align-items: center;
+      gap: 14px;
+      background: var(--bg-card);
+      backdrop-filter: blur(8px);
+      padding: 8px 18px;
+      border-radius: 999px;
+      border: 1.5px solid rgba(255, 255, 255, 0.1);
+      box-shadow: 0 4px 20px rgba(0, 0, 0, 0.3);
+    }
+
+    .player-hud.p1 {
+      border-color: var(--p1-glow);
+      box-shadow: 0 0 15px rgba(56, 189, 248, 0.2);
+    }
+
+    .player-hud.p2 {
+      border-color: var(--p2-glow);
+      box-shadow: 0 0 15px rgba(251, 113, 133, 0.2);
+      flex-direction: row-reverse;
+    }
+
+    .player-avatar {
+      width: 38px;
+      height: 38px;
+      border-radius: 50%;
+      display: flex;
+      align-items: center;
+      justify-content: center;
+      font-size: 20px;
+      position: relative;
+      box-shadow: inset 0 2px 4px rgba(255, 255, 255, 0.4), 0 3px 8px rgba(0, 0, 0, 0.4);
+    }
+
+    .p1 .player-avatar {
+      background: linear-gradient(135deg, #7dd3fc, #0284c7);
+    }
+
+    .p2 .player-avatar {
+      background: linear-gradient(135deg, #fda4af, #e11d48);
+    }
+
+    .star-slots {
+      display: flex;
+      gap: 8px;
+    }
+
+    .star-slot {
+      width: 28px;
+      height: 28px;
+      border-radius: 50%;
+      background: rgba(255, 255, 255, 0.12);
+      border: 2px solid rgba(255, 255, 255, 0.2);
+      display: flex;
+      align-items: center;
+      justify-content: center;
+      transition: all 0.35s cubic-bezier(0.34, 1.56, 0.64, 1);
+      position: relative;
+    }
+
+    .star-slot.active {
+      background: linear-gradient(135deg, #fde047, #eab308);
+      border-color: #fff;
+      transform: scale(1.22);
+      box-shadow: 0 0 16px #eab308;
+    }
+
+    .star-slot.active::after {
+      content: '★';
+      font-size: 17px;
+      color: #713f12;
+      line-height: 1;
+      text-shadow: 0 1px 1px rgba(255, 255, 255, 0.6);
+    }
+
+    /* Center Target Orb HUD Display */
+    .center-target-banner {
+      display: flex;
+      align-items: center;
+      gap: 12px;
+      background: rgba(15, 23, 42, 0.92);
+      backdrop-filter: blur(12px);
+      padding: 6px 20px;
+      border-radius: 999px;
+      border: 2px solid rgba(255, 255, 255, 0.25);
+      box-shadow: 0 4px 24px rgba(0, 0, 0, 0.5);
+    }
+
+    .target-orb-preview {
+      width: 32px;
+      height: 32px;
+      border-radius: 50%;
+      box-shadow: 0 0 20px currentColor;
+      transition: transform 0.3s ease, background 0.4s ease;
+      animation: pulse-ring 2s infinite;
+    }
+
+    @keyframes pulse-ring {
+      0%, 100% { transform: scale(1); }
+      50% { transform: scale(1.15); }
+    }
+
+    /* Actions & Utility Buttons */
+    .hud-controls {
+      display: flex;
+      align-items: center;
+      gap: 8px;
+    }
+
+    .icon-btn {
+      background: rgba(255, 255, 255, 0.1);
+      border: 1px solid rgba(255, 255, 255, 0.2);
+      color: #fff;
+      width: 38px;
+      height: 38px;
+      border-radius: 50%;
+      cursor: pointer;
+      display: flex;
+      align-items: center;
+      justify-content: center;
+      font-size: 16px;
+      transition: all 0.2s;
+    }
+
+    .icon-btn:hover {
+      background: rgba(255, 255, 255, 0.25);
+      transform: scale(1.08);
+    }
+
+    .icon-btn:active {
+      transform: scale(0.95);
+    }
+
+    /* Game Canvas Container */
+    #canvas-container {
+      position: relative;
+      width: 100%;
+      max-width: 1200px;
+      aspect-ratio: 16 / 10;
+      max-height: calc(100vh - 120px);
+      box-shadow: 0 16px 40px -10px rgba(0, 0, 0, 0.7), 0 0 0 2px rgba(255, 255, 255, 0.1);
+      border-radius: 20px;
+      overflow: hidden;
+      background: #111827;
+    }
+
+    canvas#gameCanvas {
+      width: 100%;
+      height: 100%;
+      display: block;
+    }
+
+    /* Visual Control Bar (Zero English needed, purely iconic) */
+    footer#controls-bar {
+      width: 100%;
+      max-width: 1200px;
+      display: flex;
+      justify-content: space-between;
+      align-items: center;
+      padding: 6px 20px;
+      margin-top: 6px;
+      font-size: 13px;
+      color: rgba(255, 255, 255, 0.7);
+    }
+
+    .key-badge-group {
+      display: flex;
+      align-items: center;
+      gap: 6px;
+      background: rgba(255, 255, 255, 0.05);
+      padding: 4px 12px;
+      border-radius: 999px;
+      border: 1px solid rgba(255, 255, 255, 0.1);
+    }
+
+    .key-pill {
+      background: rgba(255, 255, 255, 0.15);
+      border: 1px solid rgba(255, 255, 255, 0.3);
+      padding: 2px 7px;
+      border-radius: 6px;
+      font-weight: 700;
+      font-size: 11px;
+      color: #fff;
+      box-shadow: 0 2px 0 rgba(0, 0, 0, 0.4);
+    }
+
+    .action-pill {
+      background: rgba(255, 255, 255, 0.25);
+      color: #fef08a;
+      border-color: rgba(254, 240, 138, 0.5);
+    }
+
+    /* Victory Overlay Screen */
+    #victory-overlay {
+      position: absolute;
+      inset: 0;
+      background: rgba(11, 15, 25, 0.85);
+      backdrop-filter: blur(10px);
+      display: flex;
+      flex-direction: column;
+      align-items: center;
+      justify-content: center;
+      z-index: 50;
+      opacity: 0;
+      pointer-events: none;
+      transition: opacity 0.4s ease;
+    }
+
+    #victory-overlay.visible {
+      opacity: 1;
+      pointer-events: auto;
+    }
+
+    .victory-card {
+      background: linear-gradient(145deg, rgba(30, 41, 59, 0.95), rgba(15, 23, 42, 0.95));
+      border: 3px solid rgba(255, 255, 255, 0.2);
+      border-radius: 32px;
+      padding: 32px 54px;
+      display: flex;
+      flex-direction: column;
+      align-items: center;
+      gap: 20px;
+      box-shadow: 0 25px 60px -15px rgba(0, 0, 0, 0.9), 0 0 40px var(--winner-glow, rgba(250, 204, 21, 0.4));
+      transform: scale(0.85);
+      transition: transform 0.4s cubic-bezier(0.34, 1.56, 0.64, 1);
+    }
+
+    #victory-overlay.visible .victory-card {
+      transform: scale(1);
+    }
+
+    .winner-emblem {
+      font-size: 72px;
+      line-height: 1;
+      filter: drop-shadow(0 6px 16px rgba(0, 0, 0, 0.5));
+      animation: float-crown 2s ease-in-out infinite;
+    }
+
+    @keyframes float-crown {
+      0%, 100% { transform: translateY(0) scale(1); }
+      50% { transform: translateY(-10px) scale(1.06); }
+    }
+
+    .winner-title {
+      font-size: 34px;
+      font-weight: 800;
+      letter-spacing: 0.5px;
+      display: flex;
+      align-items: center;
+      gap: 12px;
+    }
+
+    .btn-replay {
+      width: 76px;
+      height: 76px;
+      border-radius: 50%;
+      border: 3px solid #fff;
+      background: linear-gradient(135deg, #10b981, #059669);
+      color: #fff;
+      font-size: 36px;
+      cursor: pointer;
+      display: flex;
+      align-items: center;
+      justify-content: center;
+      box-shadow: 0 10px 25px rgba(16, 185, 129, 0.5), inset 0 2px 4px rgba(255, 255, 255, 0.5);
+      transition: all 0.2s cubic-bezier(0.34, 1.56, 0.64, 1);
+      animation: pulse-replay 1.8s infinite;
+    }
+
+    .btn-replay:hover {
+      transform: scale(1.15) rotate(15deg);
+      box-shadow: 0 15px 35px rgba(16, 185, 129, 0.7);
+    }
+
+    .btn-replay:active {
+      transform: scale(0.95);
+    }
+
+    @keyframes pulse-replay {
+      0%, 100% { box-shadow: 0 0 0 0 rgba(16, 185, 129, 0.6); }
+      50% { box-shadow: 0 0 0 18px rgba(16, 185, 129, 0); }
+    }
+  </style>
+</head>
+<body>
+
+  <!-- Top HUD Bar -->
+  <header id="game-hud">
+    <!-- Player 1 Score & Identity -->
+    <div class="player-hud p1" id="p1-hud">
+      <div class="player-avatar" title="Player 1">
+        <svg width="26" height="26" viewBox="0 0 100 100">
+          <ellipse cx="50" cy="52" rx="42" ry="38" fill="#38bdf8" />
+          <!-- Eyes -->
+          <circle cx="36" cy="46" r="6" fill="#0f172a" />
+          <circle cx="38" cy="44" r="2.2" fill="#fff" />
+          <circle cx="64" cy="46" r="6" fill="#0f172a" />
+          <circle cx="66" cy="44" r="2.2" fill="#fff" />
+          <!-- Blush -->
+          <ellipse cx="26" cy="56" rx="5" ry="3" fill="#f43f5e" opacity="0.6"/>
+          <ellipse cx="74" cy="56" rx="5" ry="3" fill="#f43f5e" opacity="0.6"/>
+          <!-- Smile -->
+          <path d="M 42 56 Q 50 64 58 56" stroke="#0f172a" stroke-width="3" fill="none" stroke-linecap="round"/>
+        </svg>
+      </div>
+      <div class="star-slots" id="p1-stars">
+        <div class="star-slot" id="p1-star-1"></div>
+        <div class="star-slot" id="p1-star-2"></div>
+        <div class="star-slot" id="p1-star-3"></div>
+      </div>
+    </div>
+
+    <!-- Center Target Orb Indicator -->
+    <div class="center-target-banner" id="center-banner">
+      <div class="target-orb-preview" id="hud-target-orb"></div>
+      <svg width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.8" stroke-linecap="round" stroke-linejoin="round" style="opacity:0.85; color:#facc15;">
+        <polyline points="20 6 9 17 4 12"></polyline>
+      </svg>
+    </div>
+
+    <!-- Player 2 Score & Identity -->
+    <div class="player-hud p2" id="p2-hud">
+      <div class="player-avatar" title="Player 2">
+        <svg width="26" height="26" viewBox="0 0 100 100">
+          <ellipse cx="50" cy="52" rx="42" ry="38" fill="#fb7185" />
+          <!-- Eyes -->
+          <circle cx="36" cy="46" r="6" fill="#0f172a" />
+          <circle cx="38" cy="44" r="2.2" fill="#fff" />
+          <circle cx="64" cy="46" r="6" fill="#0f172a" />
+          <circle cx="66" cy="44" r="2.2" fill="#fff" />
+          <!-- Blush -->
+          <ellipse cx="26" cy="56" rx="5" ry="3" fill="#e11d48" opacity="0.6"/>
+          <ellipse cx="74" cy="56" rx="5" ry="3" fill="#e11d48" opacity="0.6"/>
+          <!-- Smile -->
+          <path d="M 42 56 Q 50 64 58 56" stroke="#0f172a" stroke-width="3" fill="none" stroke-linecap="round"/>
+        </svg>
+      </div>
+      <div class="star-slots" id="p2-stars">
+        <div class="star-slot" id="p2-star-1"></div>
+        <div class="star-slot" id="p2-star-2"></div>
+        <div class="star-slot" id="p2-star-3"></div>
+      </div>
+    </div>
+
+    <!-- Audio & Reset Buttons -->
+    <div class="hud-controls">
+      <button class="icon-btn" id="btn-sound" title="Toggle Sound" aria-label="Toggle Sound">🔊</button>
+      <button class="icon-btn" id="btn-fullscreen" title="Toggle Fullscreen" aria-label="Toggle Fullscreen">⛶</button>
+      <button class="icon-btn" id="btn-restart-hud" title="Restart Round" aria-label="Restart Round">↺</button>
+    </div>
+  </header>
+
+  <!-- Game Canvas Arena -->
+  <main id="canvas-container">
+    <canvas id="gameCanvas" width="1200" height="750"></canvas>
+
+    <!-- Round Victory Modal -->
+    <div id="victory-overlay">
+      <div class="victory-card" id="victory-card">
+        <div class="winner-emblem" id="winner-emblem">👑</div>
+        <div class="winner-title" id="winner-title">
+          <span id="winner-name-text">WINNER!</span>
+        </div>
+        <button class="btn-replay" id="btn-replay" title="Play Again" aria-label="Play Again">
+          <svg width="40" height="40" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="3" stroke-linecap="round" stroke-linejoin="round">
+            <polyline points="23 4 23 10 17 10"></polyline>
+            <path d="M20.49 15a9 9 0 1 1-2.12-9.36L23 10"></path>
+          </svg>
+        </button>
+      </div>
+    </div>
+  </main>
+
+  <!-- Bottom Visual Controls Bar -->
+  <footer id="controls-bar">
+    <div class="key-badge-group">
+      <span style="color:var(--p1-blue); font-weight:700;">P1:</span>
+      <span class="key-pill">W</span>
+      <span class="key-pill">A</span>
+      <span class="key-pill">S</span>
+      <span class="key-pill">D</span>
+      <span style="margin: 0 4px; opacity: 0.5;">+</span>
+      <span class="key-pill action-pill">SPACE</span>
+      <span style="opacity: 0.5;">/</span>
+      <span class="key-pill action-pill">E</span>
+      <span style="font-size: 15px; margin-left: 4px;">🖐</span>
+    </div>
+
+    <div style="font-size: 12px; opacity: 0.7; letter-spacing: 0.5px;">
+      MATCH COLOR ➔ SCORE 3
+    </div>
+
+    <div class="key-badge-group">
+      <span style="color:var(--p2-red); font-weight:700;">P2:</span>
+      <span class="key-pill">▲</span>
+      <span class="key-pill">◄</span>
+      <span class="key-pill">▼</span>
+      <span class="key-pill">►</span>
+      <span style="margin: 0 4px; opacity: 0.5;">+</span>
+      <span class="key-pill action-pill">ENTER</span>
+      <span style="opacity: 0.5;">/</span>
+      <span class="key-pill action-pill">SHIFT</span>
+      <span style="font-size: 15px; margin-left: 4px;">🖐</span>
+    </div>
+  </footer>
+
+  <script>
+    /* ==========================================================================
+       COLOR BOWL MATCH - CORE GAME ENGINE
+       ========================================================================== */
+
+    // --- Vibrant, High-Contrast Color Palette ---
+    const BALL_COLORS = [
+      { id: 0, name: 'Yellow', main: '#facc15', light: '#fef08a', dark: '#ca8a04', glow: 'rgba(250, 204, 21, 0.65)' },
+      { id: 1, name: 'Purple', main: '#a855f7', light: '#d8b4fe', dark: '#7e22ce', glow: 'rgba(168, 85, 247, 0.65)' },
+      { id: 2, name: 'Green',  main: '#22c55e', light: '#86efac', dark: '#15803d', glow: 'rgba(34, 197, 94, 0.65)' },
+      { id: 3, name: 'Orange', main: '#fb923c', light: '#fed7aa', dark: '#c2410c', glow: 'rgba(251, 146, 60, 0.65)' }
+    ];
+
+    // --- Web Audio Procedural Synthesizer ---
+    class SoundEngine {
+      constructor() {
+        this.ctx = null;
+        this.isMuted = false;
+      }
+
+      init() {
+        if (!this.ctx) {
+          const AudioContext = window.AudioContext || window.webkitAudioContext;
+          this.ctx = new AudioContext();
+        }
+        if (this.ctx && this.ctx.state === 'suspended') {
+          this.ctx.resume();
+        }
+      }
+
+      toggleMute() {
+        this.isMuted = !this.isMuted;
+        return !this.isMuted;
+      }
+
+      // Satisfying pop on ball grab
+      playPop() {
+        if (this.isMuted) return;
+        this.init();
+        const t = this.ctx.currentTime;
+        const osc = this.ctx.createOscillator();
+        const gain = this.ctx.createGain();
+
+        osc.type = 'sine';
+        osc.frequency.setValueAtTime(650, t);
+        osc.frequency.exponentialRampToValueAtTime(160, t + 0.12);
+
+        gain.gain.setValueAtTime(0.35, t);
+        gain.gain.exponentialRampToValueAtTime(0.001, t + 0.12);
+
+        osc.connect(gain);
+        gain.connect(this.ctx.destination);
+
+        osc.start(t);
+        osc.stop(t + 0.13);
+      }
+
+      // Drop / toss sound
+      playDrop() {
+        if (this.isMuted) return;
+        this.init();
+        const t = this.ctx.currentTime;
+        const osc = this.ctx.createOscillator();
+        const gain = this.ctx.createGain();
+
+        osc.type = 'triangle';
+        osc.frequency.setValueAtTime(320, t);
+        osc.frequency.exponentialRampToValueAtTime(140, t + 0.15);
+
+        gain.gain.setValueAtTime(0.25, t);
+        gain.gain.exponentialRampToValueAtTime(0.001, t + 0.15);
+
+        osc.connect(gain);
+        gain.connect(this.ctx.destination);
+
+        osc.start(t);
+        osc.stop(t + 0.16);
+      }
+
+      // Soft boing on collision or wall bounce
+      playBoing() {
+        if (this.isMuted) return;
+        this.init();
+        const t = this.ctx.currentTime;
+        const osc = this.ctx.createOscillator();
+        const gain = this.ctx.createGain();
+
+        osc.type = 'triangle';
+        osc.frequency.setValueAtTime(260, t);
+        osc.frequency.linearRampToValueAtTime(420, t + 0.08);
+        osc.frequency.exponentialRampToValueAtTime(180, t + 0.25);
+
+        gain.gain.setValueAtTime(0.3, t);
+        gain.gain.exponentialRampToValueAtTime(0.001, t + 0.25);
+
+        osc.connect(gain);
+        gain.connect(this.ctx.destination);
+
+        osc.start(t);
+        osc.stop(t + 0.26);
+      }
+
+      // Wrong color gentle wobble buzz
+      playReject() {
+        if (this.isMuted) return;
+        this.init();
+        const t = this.ctx.currentTime;
+        const osc = this.ctx.createOscillator();
+        const gain = this.ctx.createGain();
+
+        osc.type = 'sawtooth';
+        osc.frequency.setValueAtTime(160, t);
+        osc.frequency.linearRampToValueAtTime(110, t + 0.32);
+
+        gain.gain.setValueAtTime(0.22, t);
+        gain.gain.exponentialRampToValueAtTime(0.001, t + 0.32);
+
+        osc.connect(gain);
+        gain.connect(this.ctx.destination);
+
+        osc.start(t);
+        osc.stop(t + 0.33);
+      }
+
+      // Crystalline Ding on valid point match
+      playDing() {
+        if (this.isMuted) return;
+        this.init();
+        const t = this.ctx.currentTime;
+        const freqs = [880, 1320, 1760]; // Sparkling triad
+
+        freqs.forEach((freq, idx) => {
+          const osc = this.ctx.createOscillator();
+          const gain = this.ctx.createGain();
+
+          osc.type = 'sine';
+          osc.frequency.setValueAtTime(freq, t + idx * 0.04);
+
+          gain.gain.setValueAtTime(0.22 / (idx + 1), t + idx * 0.04);
+          gain.gain.exponentialRampToValueAtTime(0.0001, t + 0.6);
+
+          osc.connect(gain);
+          gain.connect(this.ctx.destination);
+
+          osc.start(t + idx * 0.04);
+          osc.stop(t + 0.65);
+        });
+      }
+
+      // Cheerful victory melody fanfare
+      playVictory() {
+        if (this.isMuted) return;
+        this.init();
+        const t = this.ctx.currentTime;
+        const notes = [
+          { f: 523.25, time: 0.00, dur: 0.15 }, // C5
+          { f: 659.25, time: 0.14, dur: 0.15 }, // E5
+          { f: 783.99, time: 0.28, dur: 0.18 }, // G5
+          { f: 1046.5, time: 0.44, dur: 0.45 }, // C6
+          { f: 1318.5, time: 0.58, dur: 0.60 }  // E6
+        ];
+
+        notes.forEach(note => {
+          const osc = this.ctx.createOscillator();
+          const gain = this.ctx.createGain();
+
+          osc.type = 'triangle';
+          osc.frequency.setValueAtTime(note.f, t + note.time);
+
+          gain.gain.setValueAtTime(0.3, t + note.time);
+          gain.gain.exponentialRampToValueAtTime(0.001, t + note.time + note.dur);
+
+          osc.connect(gain);
+          gain.connect(this.ctx.destination);
+
+          osc.start(t + note.time);
+          osc.stop(t + note.time + note.dur + 0.05);
+        });
+      }
+    }
+
+    const sound = new SoundEngine();
+
+    // Unlock Web Audio on first user interaction
+    window.addEventListener('keydown', () => sound.init(), { once: true });
+    window.addEventListener('pointerdown', () => sound.init(), { once: true });
+
+    // --- Strict Multi-Key Keyboard Tracking Engine ---
+    class KeyboardEngine {
+      constructor() {
+        this.keys = {};
+        this.justPressed = {};
+
+        window.addEventListener('keydown', (e) => {
+          // Prevent browser scrolling with game keys
+          const gameKeys = ['ArrowUp', 'ArrowDown', 'ArrowLeft', 'ArrowRight', 'Space', ' '];
+          if (gameKeys.includes(e.key) || gameKeys.includes(e.code)) {
+            e.preventDefault();
+          }
+
+          const code = e.code || e.key;
+          if (!this.keys[code]) {
+            this.justPressed[code] = true;
+          }
+          this.keys[code] = true;
+          // Also set by key character
+          if (e.key) {
+            if (!this.keys[e.key]) this.justPressed[e.key] = true;
+            this.keys[e.key] = true;
+          }
+        });
+
+        window.addEventListener('keyup', (e) => {
+          const code = e.code || e.key;
+          this.keys[code] = false;
+          this.justPressed[code] = false;
+          if (e.key) {
+            this.keys[e.key] = false;
+            this.justPressed[e.key] = false;
+          }
+        });
+
+        window.addEventListener('blur', () => {
+          this.keys = {};
+          this.justPressed = {};
+        });
+      }
+
+      isDown(codes) {
+        if (!Array.isArray(codes)) codes = [codes];
+        return codes.some(c => !!this.keys[c]);
+      }
+
+      wasJustPressed(codes) {
+        if (!Array.isArray(codes)) codes = [codes];
+        const res = codes.some(c => !!this.justPressed[c]);
+        if (res) {
+          codes.forEach(c => this.justPressed[c] = false);
+        }
+        return res;
+      }
+    }
+
+    const input = new KeyboardEngine();
+
+    // --- Particle System ---
+    class ParticleSystem {
+      constructor() {
+        this.particles = [];
+      }
+
+      spawn(x, y, options = {}) {
+        const count = options.count || 12;
+        for (let i = 0; i < count; i++) {
+          const angle = options.angle !== undefined ? options.angle + (Math.random() - 0.5) * (options.spread || Math.PI) : Math.random() * Math.PI * 2;
+          const speed = (options.speed || 3) * (0.4 + Math.random() * 0.8);
+          this.particles.push({
+            x,
+            y,
+            vx: Math.cos(angle) * speed,
+            vy: Math.sin(angle) * speed,
+            color: options.color || '#facc15',
+            radius: options.radius || (Math.random() * 4 + 3),
+            alpha: 1,
+            decay: options.decay || (0.015 + Math.random() * 0.02),
+            gravity: options.gravity || 0.08,
+            shape: options.shape || 'circle',
+            rotation: Math.random() * Math.PI * 2,
+            rotSpeed: (Math.random() - 0.5) * 0.2
+          });
+        }
+      }
+
+      spawnConfetti(x, y) {
+        const colors = ['#f43f5e', '#38bdf8', '#facc15', '#22c55e', '#a855f7', '#fb923c'];
+        for (let i = 0; i < 70; i++) {
+          const angle = -Math.PI / 2 + (Math.random() - 0.5) * (Math.PI * 0.85);
+          const speed = Math.random() * 9 + 4;
+          this.particles.push({
+            x: x + (Math.random() - 0.5) * 60,
+            y: y + (Math.random() - 0.5) * 30,
+            vx: Math.cos(angle) * speed,
+            vy: Math.sin(angle) * speed,
+            color: colors[Math.floor(Math.random() * colors.length)],
+            radius: Math.random() * 6 + 4,
+            alpha: 1,
+            decay: 0.007 + Math.random() * 0.006,
+            gravity: 0.14,
+            shape: Math.random() > 0.4 ? 'rect' : 'circle',
+            rotation: Math.random() * Math.PI * 2,
+            rotSpeed: (Math.random() - 0.5) * 0.25
+          });
+        }
+      }
+
+      spawnIconText(x, y, icon, color = '#22c55e') {
+        this.particles.push({
+          x,
+          y,
+          vx: 0,
+          vy: -2.0,
+          icon,
+          color,
+          alpha: 1,
+          decay: 0.018,
+          gravity: -0.01,
+          shape: 'text'
+        });
+      }
+
+      update() {
+        for (let i = this.particles.length - 1; i >= 0; i--) {
+          const p = this.particles[i];
+          p.x += p.vx;
+          p.y += p.vy;
+          p.vy += p.gravity;
+          p.alpha -= p.decay;
+          if (p.rotation !== undefined) p.rotation += p.rotSpeed;
+
+          if (p.alpha <= 0) {
+            this.particles.splice(i, 1);
+          }
+        }
+      }
+
+      draw(ctx) {
+        ctx.save();
+        for (const p of this.particles) {
+          ctx.globalAlpha = Math.max(0, p.alpha);
+          if (p.shape === 'circle') {
+            ctx.fillStyle = p.color;
+            ctx.beginPath();
+            ctx.arc(p.x, p.y, p.radius, 0, Math.PI * 2);
+            ctx.fill();
+          } else if (p.shape === 'rect') {
+            ctx.save();
+            ctx.translate(p.x, p.y);
+            ctx.rotate(p.rotation);
+            ctx.fillStyle = p.color;
+            ctx.fillRect(-p.radius, -p.radius * 0.6, p.radius * 2, p.radius * 1.2);
+            ctx.restore();
+          } else if (p.shape === 'text') {
+            ctx.font = 'bold 40px sans-serif';
+            ctx.textAlign = 'center';
+            ctx.textBaseline = 'middle';
+            ctx.fillStyle = p.color;
+            ctx.shadowColor = 'rgba(0,0,0,0.6)';
+            ctx.shadowBlur = 10;
+            ctx.fillText(p.icon, p.x, p.y);
+          }
+        }
+        ctx.restore();
+      }
+    }
+
+    // --- Rolling Colored Ball ---
+    class Ball {
+      constructor(x, y, colorIdx) {
+        this.x = x;
+        this.y = y;
+        this.vx = (Math.random() - 0.5) * 1.6;
+        this.vy = (Math.random() - 0.5) * 1.6;
+        this.radius = 21;
+        this.colorIdx = colorIdx;
+        this.isHeld = false;
+        this.carrier = null;
+        this.bounceCooldown = 0;
+        this.scale = 1;
+        this.glowAngle = Math.random() * Math.PI * 2;
+      }
+
+      update(bounds, dt) {
+        this.glowAngle += dt * 3;
+
+        if (this.isHeld && this.carrier) {
+          // Carried over player's head with bobbing bounce
+          const bob = Math.sin(Date.now() * 0.012) * 3;
+          this.x = this.carrier.x;
+          this.y = this.carrier.y - this.carrier.radius - this.radius + 6 + bob;
+          this.vx = 0;
+          this.vy = 0;
+          return;
+        }
+
+        // Gentle friction
+        this.vx *= 0.986;
+        this.vy *= 0.986;
+
+        // Apply gentle wander impulse if nearly still
+        const speed = Math.hypot(this.vx, this.vy);
+        if (speed < 0.25) {
+          const ang = Math.random() * Math.PI * 2;
+          this.vx += Math.cos(ang) * 0.4;
+          this.vy += Math.sin(ang) * 0.4;
+        }
+
+        this.x += this.vx;
+        this.y += this.vy;
+
+        // Boundary collisions
+        if (this.x - this.radius < bounds.left) {
+          this.x = bounds.left + this.radius;
+          this.vx = Math.abs(this.vx) * 0.82;
+        }
+        if (this.x + this.radius > bounds.right) {
+          this.x = bounds.right - this.radius;
+          this.vx = -Math.abs(this.vx) * 0.82;
+        }
+        if (this.y - this.radius < bounds.top) {
+          this.y = bounds.top + this.radius;
+          this.vy = Math.abs(this.vy) * 0.82;
+        }
+        if (this.y + this.radius > bounds.bottom) {
+          this.y = bounds.bottom - this.radius;
+          this.vy = -Math.abs(this.vy) * 0.82;
+        }
+
+        if (this.bounceCooldown > 0) this.bounceCooldown -= dt;
+      }
+
+      draw(ctx, isTargetColor) {
+        ctx.save();
+        ctx.translate(this.x, this.y);
+        ctx.scale(this.scale, this.scale);
+
+        const col = BALL_COLORS[this.colorIdx];
+
+        // Soft Floor Drop Shadow
+        if (!this.isHeld) {
+          ctx.beginPath();
+          ctx.ellipse(0, this.radius - 2, this.radius * 0.85, this.radius * 0.35, 0, 0, Math.PI * 2);
+          ctx.fillStyle = 'rgba(0, 0, 0, 0.35)';
+          ctx.fill();
+        }
+
+        // If target color, draw glowing matching halo
+        if (isTargetColor) {
+          const pulse = (Math.sin(this.glowAngle) + 1) * 0.5;
+          ctx.beginPath();
+          ctx.arc(0, 0, this.radius + 6 + pulse * 5, 0, Math.PI * 2);
+          ctx.fillStyle = col.glow;
+          ctx.fill();
+
+          // Subtle twinkle rings
+          ctx.strokeStyle = '#fff';
+          ctx.lineWidth = 1.6;
+          ctx.globalAlpha = 0.5 + pulse * 0.4;
+          ctx.beginPath();
+          ctx.arc(0, 0, this.radius + 2 + pulse * 2, 0, Math.PI * 2);
+          ctx.stroke();
+          ctx.globalAlpha = 1;
+        }
+
+        // 3D Sphere Radial Gradient
+        const grad = ctx.createRadialGradient(
+          -this.radius * 0.35, -this.radius * 0.35, this.radius * 0.1,
+          0, 0, this.radius
+        );
+        grad.addColorStop(0, '#ffffff');
+        grad.addColorStop(0.25, col.light);
+        grad.addColorStop(0.75, col.main);
+        grad.addColorStop(1, col.dark);
+
+        ctx.beginPath();
+        ctx.arc(0, 0, this.radius, 0, Math.PI * 2);
+        ctx.fillStyle = grad;
+        ctx.fill();
+
+        // Edge rim highlight
+        ctx.strokeStyle = 'rgba(255, 255, 255, 0.45)';
+        ctx.lineWidth = 1.5;
+        ctx.stroke();
+
+        ctx.restore();
+      }
+    }
+
+    // --- Player Blob ---
+    class PlayerBlob {
+      constructor(id, x, y, options) {
+        this.id = id;
+        this.x = x;
+        this.y = y;
+        this.startX = x;
+        this.startY = y;
+        this.vx = 0;
+        this.vy = 0;
+        this.radius = 32;
+        this.speed = 400; // px/sec
+        this.color = options.color;
+        this.lightColor = options.lightColor;
+        this.heldBall = null;
+        this.score = 0;
+        this.facing = id === 1 ? 1 : -1;
+        this.squash = 1;
+        this.squashVelocity = 0;
+        this.walkCycle = 0;
+        this.keys = options.keys;
+        this.actionKeys = options.actionKeys;
+        this.isWinner = false;
+        this.clapCycle = 0;
+      }
+
+      reset(x, y) {
+        this.x = x || this.startX;
+        this.y = y || this.startY;
+        this.vx = 0;
+        this.vy = 0;
+        this.heldBall = null;
+        this.score = 0;
+        this.squash = 1;
+        this.isWinner = false;
+        this.clapCycle = 0;
+      }
+
+      update(dt, bounds) {
+        // Squash & stretch spring physics
+        const k = 140;
+        const damping = 12;
+        const springForce = -k * (this.squash - 1);
+        this.squashVelocity += (springForce - damping * this.squashVelocity) * dt;
+        this.squash += this.squashVelocity * dt;
+
+        let mx = 0;
+        let my = 0;
+
+        if (input.isDown(this.keys.up)) my -= 1;
+        if (input.isDown(this.keys.down)) my += 1;
+        if (input.isDown(this.keys.left)) mx -= 1;
+        if (input.isDown(this.keys.right)) mx += 1;
+
+        if (mx !== 0 && my !== 0) {
+          const len = Math.hypot(mx, my);
+          mx /= len;
+          my /= len;
+        }
+
+        // Adjust speed when carrying ball (delightful waddle weight)
+        const currentSpeed = this.heldBall ? this.speed * 0.88 : this.speed;
+
+        // Smooth acceleration with inertia
+        const accel = 2200;
+        if (mx !== 0) {
+          this.vx += mx * accel * dt;
+          this.facing = mx > 0 ? 1 : -1;
+        } else {
+          this.vx *= 0.82;
+        }
+
+        if (my !== 0) {
+          this.vy += my * accel * dt;
+        } else {
+          this.vy *= 0.82;
+        }
+
+        // Clamp speed
+        const curSpd = Math.hypot(this.vx, this.vy);
+        if (curSpd > currentSpeed) {
+          this.vx = (this.vx / curSpd) * currentSpeed;
+          this.vy = (this.vy / curSpd) * currentSpeed;
+        }
+
+        this.x += this.vx * dt;
+        this.y += this.vy * dt;
+
+        if (curSpd > 10) {
+          this.walkCycle += dt * 14;
+        }
+
+        // Keep inside bounds
+        if (this.x - this.radius < bounds.left) {
+          this.x = bounds.left + this.radius;
+          this.vx = 0;
+        }
+        if (this.x + this.radius > bounds.right) {
+          this.x = bounds.right - this.radius;
+          this.vx = 0;
+        }
+        if (this.y - this.radius < bounds.top) {
+          this.y = bounds.top + this.radius;
+          this.vy = 0;
+        }
+        if (this.y + this.radius > bounds.bottom) {
+          this.y = bounds.bottom - this.radius;
+          this.vy = 0;
+        }
+
+        if (this.clapCycle > 0) {
+          this.clapCycle += dt * 8;
+        }
+      }
+
+      applySquash(amount) {
+        this.squash = amount;
+        this.squashVelocity = (1 - amount) * 15;
+      }
+
+      draw(ctx) {
+        ctx.save();
+        ctx.translate(this.x, this.y);
+
+        // Calculate velocity-based stretch
+        const spd = Math.hypot(this.vx, this.vy);
+        const stretchX = 1 + (spd / 1200) * 0.35;
+        const stretchY = 1 / stretchX;
+
+        // Combine with spring squash
+        ctx.scale(stretchX * this.squash, stretchY * (2 - this.squash));
+
+        // Soft Blob Shadow
+        ctx.beginPath();
+        ctx.ellipse(0, this.radius - 2, this.radius * 0.9, this.radius * 0.32, 0, 0, Math.PI * 2);
+        ctx.fillStyle = 'rgba(0, 0, 0, 0.3)';
+        ctx.fill();
+
+        // Organic Blob Body with Gradient
+        const bodyGrad = ctx.createRadialGradient(-8, -10, 4, 0, 0, this.radius + 4);
+        bodyGrad.addColorStop(0, this.lightColor);
+        bodyGrad.addColorStop(1, this.color);
+
+        ctx.beginPath();
+        const r = this.radius;
+        // Wobbly bottom when walking
+        const bob = Math.sin(this.walkCycle) * 3;
+        ctx.ellipse(0, bob, r, r * 0.92, 0, 0, Math.PI * 2);
+        ctx.fillStyle = bodyGrad;
+        ctx.fill();
+
+        // Rim highlight
+        ctx.strokeStyle = 'rgba(255, 255, 255, 0.4)';
+        ctx.lineWidth = 2.5;
+        ctx.stroke();
+
+        // Eyes & Cute Expression
+        const eyeOffset = this.facing * 9;
+        const eyeY = -4 + bob;
+
+        // Eye Whites & Pupils
+        const drawEye = (x, y) => {
+          ctx.beginPath();
+          ctx.arc(x, y, 7, 0, Math.PI * 2);
+          ctx.fillStyle = '#0f172a';
+          ctx.fill();
+
+          // Sparkle highlights
+          ctx.beginPath();
+          ctx.arc(x + this.facing * 2.2, y - 2.2, 2.8, 0, Math.PI * 2);
+          ctx.fillStyle = '#ffffff';
+          ctx.fill();
+
+          ctx.beginPath();
+          ctx.arc(x - this.facing * 1.5, y + 2, 1.2, 0, Math.PI * 2);
+          ctx.fillStyle = '#ffffff';
+          ctx.fill();
+        };
+
+        drawEye(-8 + eyeOffset * 0.4, eyeY);
+        drawEye(8 + eyeOffset * 0.4, eyeY);
+
+        // Rosy Cheeks
+        ctx.beginPath();
+        ctx.ellipse(-16 + eyeOffset * 0.3, eyeY + 9, 5, 3, 0, 0, Math.PI * 2);
+        ctx.fillStyle = 'rgba(244, 63, 94, 0.55)';
+        ctx.fill();
+
+        ctx.beginPath();
+        ctx.ellipse(16 + eyeOffset * 0.3, eyeY + 9, 5, 3, 0, 0, Math.PI * 2);
+        ctx.fillStyle = 'rgba(244, 63, 94, 0.55)';
+        ctx.fill();
+
+        // Smile / Happy Face
+        ctx.beginPath();
+        if (this.heldBall) {
+          // Open joyful mouth when carrying
+          ctx.arc(eyeOffset * 0.3, eyeY + 8, 4.5, 0, Math.PI);
+          ctx.fillStyle = '#991b1b';
+          ctx.fill();
+          ctx.strokeStyle = '#0f172a';
+          ctx.lineWidth = 1.8;
+          ctx.stroke();
+        } else {
+          // Cute friendly smile
+          ctx.arc(eyeOffset * 0.3, eyeY + 7, 5, 0.2, Math.PI - 0.2);
+          ctx.strokeStyle = '#0f172a';
+          ctx.lineWidth = 2.4;
+          ctx.stroke();
+        }
+
+        // Hands
+        if (this.heldBall) {
+          // Hands reaching up to hold the ball
+          ctx.fillStyle = this.color;
+          ctx.strokeStyle = 'rgba(255,255,255,0.4)';
+          ctx.lineWidth = 1.5;
+
+          ctx.beginPath();
+          ctx.arc(-16, -18, 7, 0, Math.PI * 2);
+          ctx.fill();
+          ctx.stroke();
+
+          ctx.beginPath();
+          ctx.arc(16, -18, 7, 0, Math.PI * 2);
+          ctx.fill();
+          ctx.stroke();
+        } else if (this.clapCycle > 0) {
+          // Friendly clapping animation for runner-up
+          const clapDist = Math.abs(Math.sin(this.clapCycle)) * 12;
+          ctx.fillStyle = this.color;
+          ctx.beginPath();
+          ctx.arc(-clapDist, 10, 6, 0, Math.PI * 2);
+          ctx.arc(clapDist, 10, 6, 0, Math.PI * 2);
+          ctx.fill();
+        }
+
+        // Winner Crown 👑
+        if (this.isWinner) {
+          ctx.save();
+          ctx.translate(0, -this.radius - 12);
+          ctx.font = '28px sans-serif';
+          ctx.textAlign = 'center';
+          ctx.textBaseline = 'middle';
+          ctx.fillText('👑', 0, 0);
+          ctx.restore();
+        }
+
+        ctx.restore();
+      }
+    }
+
+    // --- Scoring Bowl ---
+    class Bowl {
+      constructor(x, y, radius, color, glowColor, playerNum) {
+        this.x = x;
+        this.y = y;
+        this.radius = radius;
+        this.color = color;
+        this.glowColor = glowColor;
+        this.playerNum = playerNum;
+        this.wobble = 0;
+        this.wobbleDecay = 6;
+        this.celebrationTimer = 0;
+      }
+
+      triggerWobble() {
+        this.wobble = 1.0;
+      }
+
+      triggerScore() {
+        this.celebrationTimer = 1.0;
+      }
+
+      update(dt) {
+        if (this.wobble > 0) {
+          this.wobble = Math.max(0, this.wobble - dt * this.wobbleDecay);
+        }
+        if (this.celebrationTimer > 0) {
+          this.celebrationTimer = Math.max(0, this.celebrationTimer - dt * 2);
+        }
+      }
+
+      draw(ctx, scoredCount) {
+        ctx.save();
+        ctx.translate(this.x, this.y);
+
+        // Shake wobble if wrong color was ejected
+        if (this.wobble > 0) {
+          const shakeX = Math.sin(Date.now() * 0.04) * (this.wobble * 16);
+          const shakeAngle = Math.sin(Date.now() * 0.05) * (this.wobble * 0.15);
+          ctx.translate(shakeX, 0);
+          ctx.rotate(shakeAngle);
+        }
+
+        // Glowing outer halo
+        const isGlowing = this.celebrationTimer > 0;
+        ctx.beginPath();
+        ctx.arc(0, 0, this.radius + (isGlowing ? 16 : 8), 0, Math.PI * 2);
+        ctx.fillStyle = isGlowing ? 'rgba(250, 204, 21, 0.45)' : this.glowColor;
+        ctx.fill();
+
+        // 3D Outer Ceramic Rim
+        const rimGrad = ctx.createRadialGradient(0, -10, this.radius * 0.5, 0, 0, this.radius);
+        rimGrad.addColorStop(0, '#334155');
+        rimGrad.addColorStop(0.85, '#1e293b');
+        rimGrad.addColorStop(1, '#0f172a');
+
+        ctx.beginPath();
+        ctx.arc(0, 0, this.radius, 0, Math.PI * 2);
+        ctx.fillStyle = rimGrad;
+        ctx.fill();
+        ctx.strokeStyle = this.color;
+        ctx.lineWidth = 4;
+        ctx.stroke();
+
+        // Deep Bowl Well / Basin
+        const innerGrad = ctx.createRadialGradient(0, 5, 2, 0, 0, this.radius * 0.72);
+        innerGrad.addColorStop(0, '#090d16');
+        innerGrad.addColorStop(1, '#020617');
+
+        ctx.beginPath();
+        ctx.arc(0, 0, this.radius * 0.74, 0, Math.PI * 2);
+        ctx.fillStyle = innerGrad;
+        ctx.fill();
+
+        // Scored Gem Beads Resting Inside the Bowl
+        const ballOffsets = [
+          { x: -16, y: 4 },
+          { x: 16, y: 4 },
+          { x: 0, y: -12 }
+        ];
+
+        for (let i = 0; i < scoredCount; i++) {
+          const pt = ballOffsets[i];
+          ctx.save();
+          ctx.translate(pt.x, pt.y);
+
+          // Golden star gem inside bowl
+          ctx.beginPath();
+          ctx.arc(0, 0, 11, 0, Math.PI * 2);
+          ctx.fillStyle = '#facc15';
+          ctx.fill();
+          ctx.strokeStyle = '#fff';
+          ctx.lineWidth = 2;
+          ctx.stroke();
+
+          // Sparkle
+          ctx.beginPath();
+          ctx.arc(-3, -3, 3, 0, Math.PI * 2);
+          ctx.fillStyle = '#fff';
+          ctx.fill();
+
+          ctx.restore();
+        }
+
+        // Bowl Emblem Badge at center base
+        ctx.beginPath();
+        ctx.arc(0, this.radius - 8, 12, 0, Math.PI * 2);
+        ctx.fillStyle = this.color;
+        ctx.fill();
+        ctx.strokeStyle = '#fff';
+        ctx.lineWidth = 2;
+        ctx.stroke();
+
+        ctx.fillStyle = '#0f172a';
+        ctx.font = 'bold 12px sans-serif';
+        ctx.textAlign = 'center';
+        ctx.textBaseline = 'middle';
+        ctx.fillText(this.playerNum === 1 ? 'P1' : 'P2', 0, this.radius - 8);
+
+        ctx.restore();
+      }
+    }
+
+    // --- Main Game Director ---
+    class ColorBowlGame {
+      constructor() {
+        this.canvas = document.getElementById('gameCanvas');
+        this.ctx = this.canvas.getContext('2d');
+        this.particles = new ParticleSystem();
+
+        this.width = 1200;
+        this.height = 750;
+
+        // Split arena boundaries
+        this.boundsP1 = { left: 40, right: 580, top: 180, bottom: 710 };
+        this.boundsP2 = { left: 620, right: 1160, top: 180, bottom: 710 };
+
+        // Players Setup
+        this.p1 = new PlayerBlob(1, 280, 420, {
+          color: '#38bdf8',
+          lightColor: '#7dd3fc',
+          keys: { up: ['KeyW', 'Keyw', 'w', 'W'], down: ['KeyS', 'Keys', 's', 'S'], left: ['KeyA', 'Keya', 'a', 'A'], right: ['KeyD', 'Keyd', 'd', 'D'] },
+          actionKeys: ['Space', ' ', 'KeyE', 'Keye', 'e', 'E']
+        });
+
+        this.p2 = new PlayerBlob(2, 920, 420, {
+          color: '#fb7185',
+          lightColor: '#fda4af',
+          keys: { up: ['ArrowUp'], down: ['ArrowDown'], left: ['ArrowLeft'], right: ['ArrowRight'] },
+          actionKeys: ['Enter', 'ShiftRight', 'ShiftLeft', 'Shift']
+        });
+
+        // Bowls Setup (Cozy bottom zones)
+        this.bowl1 = new Bowl(180, 620, 68, '#38bdf8', 'rgba(56, 189, 248, 0.25)', 1);
+        this.bowl2 = new Bowl(1020, 620, 68, '#fb7185', 'rgba(251, 113, 133, 0.25)', 2);
+
+        this.targetColorIdx = 0;
+        this.targetPulseAngle = 0;
+        this.balls = [];
+        this.gameState = 'PLAYING'; // 'PLAYING' | 'VICTORY'
+        this.winner = null;
+
+        // UI references
+        this.victoryOverlay = document.getElementById('victory-overlay');
+        this.winnerEmblem = document.getElementById('winner-emblem');
+        this.winnerTitle = document.getElementById('winner-title');
+        this.hudTargetOrb = document.getElementById('hud-target-orb');
+
+        this.bindEvents();
+        this.startMatch();
+      }
+
+      bindEvents() {
+        document.getElementById('btn-sound').addEventListener('click', (e) => {
+          const unmuted = sound.toggleMute();
+          e.target.textContent = unmuted ? '🔊' : '🔇';
+        });
+
+        document.getElementById('btn-fullscreen').addEventListener('click', () => {
+          if (!document.fullscreenElement) {
+            document.documentElement.requestFullscreen().catch(() => {});
+          } else {
+            document.exitFullscreen().catch(() => {});
+          }
+        });
+
+        const resetHandler = () => this.startMatch();
+        document.getElementById('btn-restart-hud').addEventListener('click', resetHandler);
+        document.getElementById('btn-replay').addEventListener('click', resetHandler);
+
+        window.addEventListener('keydown', (e) => {
+          if (this.gameState === 'VICTORY') {
+            if (e.code === 'Space' || e.code === 'Enter' || e.key === ' ' || e.key === 'Enter') {
+              this.startMatch();
+            }
+          }
+        });
+      }
+
+      startMatch() {
+        this.gameState = 'PLAYING';
+        this.winner = null;
+        this.victoryOverlay.classList.remove('visible');
+
+        this.p1.reset(280, 420);
+        this.p2.reset(920, 420);
+
+        this.bowl1.wobble = 0;
+        this.bowl2.wobble = 0;
+
+        this.updateHUDScore();
+        this.pickNewTargetColor(true);
+        this.spawnInitialBalls();
+      }
+
+      pickNewTargetColor(first = false) {
+        let next;
+        do {
+          next = Math.floor(Math.random() * BALL_COLORS.length);
+        } while (next === this.targetColorIdx && BALL_COLORS.length > 1);
+
+        this.targetColorIdx = next;
+        const color = BALL_COLORS[next];
+
+        // Update HUD display
+        this.hudTargetOrb.style.backgroundColor = color.main;
+        this.hudTargetOrb.style.color = color.glow;
+        this.hudTargetOrb.style.boxShadow = `0 0 20px ${color.glow}`;
+
+        if (!first) {
+          // Play a target refresh chime
+          sound.playDing();
+          // Center altar burst
+          this.particles.spawn(this.width / 2, 96, {
+            color: color.main,
+            count: 24,
+            speed: 4,
+            radius: 5
+          });
+        }
+      }
+
+      isSafeSpawnLocation(x, y) {
+        // Safe distance from bowls
+        if (Math.hypot(x - this.bowl1.x, y - this.bowl1.y) < 130) return false;
+        if (Math.hypot(x - this.bowl2.x, y - this.bowl2.y) < 130) return false;
+        // Safe distance from players
+        if (Math.hypot(x - this.p1.x, y - this.p1.y) < 80) return false;
+        if (Math.hypot(x - this.p2.x, y - this.p2.y) < 80) return false;
+        return true;
+      }
+
+      spawnInitialBalls() {
+        this.balls = [];
+        const ballsPerSide = 8;
+
+        // Ensure both sides have at least 2 target color balls
+        const generateColorList = () => {
+          const list = [this.targetColorIdx, this.targetColorIdx];
+          for (let i = 2; i < ballsPerSide; i++) {
+            list.push(Math.floor(Math.random() * BALL_COLORS.length));
+          }
+          // Shuffle list
+          return list.sort(() => Math.random() - 0.5);
+        };
+
+        // P1 side
+        const listP1 = generateColorList();
+        for (let i = 0; i < ballsPerSide; i++) {
+          let x, y, tries = 0;
+          do {
+            x = this.boundsP1.left + 50 + Math.random() * (this.boundsP1.right - this.boundsP1.left - 100);
+            y = this.boundsP1.top + 30 + Math.random() * (this.boundsP1.bottom - this.boundsP1.top - 100);
+            tries++;
+          } while (!this.isSafeSpawnLocation(x, y) && tries < 25);
+          this.balls.push(new Ball(x, y, listP1[i]));
+        }
+
+        // P2 side
+        const listP2 = generateColorList();
+        for (let i = 0; i < ballsPerSide; i++) {
+          let x, y, tries = 0;
+          do {
+            x = this.boundsP2.left + 50 + Math.random() * (this.boundsP2.right - this.boundsP2.left - 100);
+            y = this.boundsP2.top + 30 + Math.random() * (this.boundsP2.bottom - this.boundsP2.top - 100);
+            tries++;
+          } while (!this.isSafeSpawnLocation(x, y) && tries < 25);
+          this.balls.push(new Ball(x, y, listP2[i]));
+        }
+      }
+
+      spawnReplacementBall(onRightSide) {
+        const bounds = onRightSide ? this.boundsP2 : this.boundsP1;
+        let x, y, tries = 0;
+        do {
+          x = bounds.left + 50 + Math.random() * (bounds.right - bounds.left - 100);
+          y = bounds.top + 30 + Math.random() * (bounds.bottom - bounds.top - 100);
+          tries++;
+        } while (!this.isSafeSpawnLocation(x, y) && tries < 25);
+
+        // Keep probability fresh to sustain fast arcade excitement
+        const colorIdx = Math.random() < 0.4 ? this.targetColorIdx : Math.floor(Math.random() * BALL_COLORS.length);
+        const ball = new Ball(x, y, colorIdx);
+        this.balls.push(ball);
+
+        // Spawn poof
+        this.particles.spawn(x, y, {
+          color: BALL_COLORS[colorIdx].main,
+          count: 12,
+          radius: 3.5,
+          speed: 2.5
+        });
+      }
+
+      handlePlayerAction(player, bowl, isRightSide) {
+        const actionPressed = input.wasJustPressed(player.actionKeys);
+
+        // Check if player is near/over their bowl
+        const distToBowl = Math.hypot(player.x - bowl.x, player.y - bowl.y);
+        const isOverBowl = distToBowl < (bowl.radius + player.radius - 8);
+
+        // --- CARRYING A BALL ---
+        if (player.heldBall) {
+          // Case 1: Entering or dropping inside Bowl Area
+          if (isOverBowl || (actionPressed && distToBowl < bowl.radius + player.radius + 35)) {
+            const ball = player.heldBall;
+            const isMatch = (ball.colorIdx === this.targetColorIdx);
+
+            if (isMatch) {
+              // VALID MATCH! Successful drop into bowl
+              sound.playDing();
+              bowl.triggerScore();
+              player.score++;
+              this.updateHUDScore();
+
+              // Particles & Visual Checkmark
+              this.particles.spawn(bowl.x, bowl.y, {
+                color: BALL_COLORS[ball.colorIdx].main,
+                count: 28,
+                speed: 5,
+                radius: 5
+              });
+              this.particles.spawnIconText(bowl.x, bowl.y - 30, '✔', '#22c55e');
+
+              // Detach and remove ball
+              player.heldBall = null;
+              const bIdx = this.balls.indexOf(ball);
+              if (bIdx !== -1) this.balls.splice(bIdx, 1);
+
+              // Spawn replacement ball
+              this.spawnReplacementBall(isRightSide);
+
+              // Check Win Condition
+              if (player.score >= 3) {
+                this.handleVictory(player);
+                return;
+              } else {
+                // Rotate target color for dynamic variety
+                this.pickNewTargetColor(false);
+              }
+            } else {
+              // WRONG COLOR! Soft wobble and ejection
+              sound.playReject();
+              bowl.triggerWobble();
+              player.applySquash(0.7);
+
+              this.particles.spawnIconText(bowl.x, bowl.y - 30, '✖', '#f43f5e');
+
+              // Eject ball back out into arena
+              player.heldBall = null;
+              ball.isHeld = false;
+              ball.carrier = null;
+
+              const centerAimX = isRightSide ? 850 : 350;
+              const ejectAngle = Math.atan2(this.height * 0.45 - bowl.y, centerAimX - bowl.x);
+              ball.vx = Math.cos(ejectAngle) * 9.5;
+              ball.vy = Math.sin(ejectAngle) * 9.5;
+              ball.bounceCooldown = 0.4;
+            }
+            return;
+          }
+
+          // Case 2: Dropping/Tossing ball onto open arena floor
+          if (actionPressed) {
+            const ball = player.heldBall;
+            player.heldBall = null;
+            ball.isHeld = false;
+            ball.carrier = null;
+
+            // Gentle toss in facing direction
+            ball.vx = player.facing * 5 + player.vx * 0.4;
+            ball.vy = player.vy * 0.4;
+            ball.bounceCooldown = 0.25;
+
+            player.applySquash(0.85);
+            sound.playDrop();
+            return;
+          }
+        }
+
+        // --- EMPTY HANDED: PICK UP NEARBY BALL ---
+        if (!player.heldBall && actionPressed) {
+          let closest = null;
+          let minDist = 72; // Grab reach
+
+          for (const b of this.balls) {
+            if (b.isHeld || b.bounceCooldown > 0) continue;
+            // Check if ball is on this player's side
+            const onThisSide = isRightSide ? (b.x >= 600) : (b.x <= 600);
+            if (!onThisSide) continue;
+
+            const d = Math.hypot(player.x - b.x, player.y - b.y);
+            if (d < minDist) {
+              minDist = d;
+              closest = b;
+            }
+          }
+
+          if (closest) {
+            closest.isHeld = true;
+            closest.carrier = player;
+            player.heldBall = closest;
+            player.applySquash(0.8);
+            sound.playPop();
+
+            // Star grab burst
+            this.particles.spawn(closest.x, closest.y, {
+              color: BALL_COLORS[closest.colorIdx].light,
+              count: 10,
+              speed: 3,
+              radius: 3
+            });
+          }
+        }
+      }
+
+      handleVictory(winner) {
+        this.gameState = 'VICTORY';
+        this.winner = winner;
+        winner.isWinner = true;
+
+        const otherPlayer = winner.id === 1 ? this.p2 : this.p1;
+        otherPlayer.clapCycle = 1.0;
+
+        sound.playVictory();
+
+        // Big Celebratory Confetti Burst
+        for (let i = 0; i < 4; i++) {
+          setTimeout(() => {
+            this.particles.spawnConfetti(this.width * 0.5 + (Math.random() - 0.5) * 400, 200);
+            this.particles.spawnConfetti(winner.x, winner.y);
+          }, i * 220);
+        }
+
+        // Show Victory Overlay
+        const winnerColor = winner.id === 1 ? 'var(--p1-blue)' : 'var(--p2-red)';
+        const winnerGlow = winner.id === 1 ? 'rgba(56, 189, 248, 0.6)' : 'rgba(251, 113, 133, 0.6)';
+        document.getElementById('victory-card').style.setProperty('--winner-glow', winnerGlow);
+
+        document.getElementById('winner-name-text').textContent = winner.id === 1 ? 'PLAYER 1 WINS!' : 'PLAYER 2 WINS!';
+        document.getElementById('winner-name-text').style.color = winnerColor;
+        this.winnerEmblem.textContent = '👑';
+
+        setTimeout(() => {
+          this.victoryOverlay.classList.add('visible');
+        }, 500);
+      }
+
+      updateHUDScore() {
+        for (let i = 1; i <= 3; i++) {
+          const p1Slot = document.getElementById(`p1-star-${i}`);
+          const p2Slot = document.getElementById(`p2-star-${i}`);
+          if (p1Slot) p1Slot.classList.toggle('active', this.p1.score >= i);
+          if (p2Slot) p2Slot.classList.toggle('active', this.p2.score >= i);
+        }
+      }
+
+      update(dt) {
+        this.targetPulseAngle += dt * 3.5;
+
+        // Update particle physics
+        this.particles.update();
+
+        // Bowls update
+        this.bowl1.update(dt);
+        this.bowl2.update(dt);
+
+        // Players update
+        this.p1.update(dt, this.boundsP1);
+        this.p2.update(dt, this.boundsP2);
+
+        // Ball physics & boundary collisions
+        for (const b of this.balls) {
+          const isRight = b.x > 600;
+          const bounds = isRight ? this.boundsP2 : this.boundsP1;
+          b.update(bounds, dt);
+        }
+
+        // Ball-to-ball soft bouncing
+        for (let i = 0; i < this.balls.length; i++) {
+          for (let j = i + 1; j < this.balls.length; j++) {
+            const b1 = this.balls[i];
+            const b2 = this.balls[j];
+            if (b1.isHeld || b2.isHeld) continue;
+
+            const dx = b2.x - b1.x;
+            const dy = b2.y - b1.y;
+            const dist = Math.hypot(dx, dy);
+            const minDist = b1.radius + b2.radius;
+
+            if (dist < minDist && dist > 0.001) {
+              const overlap = (minDist - dist) * 0.5;
+              const nx = dx / dist;
+              const ny = dy / dist;
+
+              b1.x -= nx * overlap;
+              b1.y -= ny * overlap;
+              b2.x += nx * overlap;
+              b2.y += ny * overlap;
+
+              // Elastic bounce transfer
+              const kx = b1.vx - b2.vx;
+              const ky = b1.vy - b2.vy;
+              const p = 2 * (nx * kx + ny * ky) / 2;
+
+              b1.vx -= p * nx * 0.85;
+              b1.vy -= p * ny * 0.85;
+              b2.vx += p * nx * 0.85;
+              b2.vy += p * ny * 0.85;
+            }
+          }
+        }
+
+        // Gameplay actions if active
+        if (this.gameState === 'PLAYING') {
+          this.handlePlayerAction(this.p1, this.bowl1, false);
+          this.handlePlayerAction(this.p2, this.bowl2, true);
+        }
+      }
+
+      draw() {
+        const ctx = this.ctx;
+        ctx.clearRect(0, 0, this.width, this.height);
+
+        // Arena Flooring & Background Gradients
+        // P1 Arena Half (Left)
+        const p1Grad = ctx.createLinearGradient(0, 0, 600, 750);
+        p1Grad.addColorStop(0, '#0c1527');
+        p1Grad.addColorStop(1, '#111e38');
+        ctx.fillStyle = p1Grad;
+        ctx.fillRect(0, 0, 600, 750);
+
+        // P2 Arena Half (Right)
+        const p2Grad = ctx.createLinearGradient(600, 0, 1200, 750);
+        p2Grad.addColorStop(0, '#21101b');
+        p2Grad.addColorStop(1, '#331528');
+        ctx.fillStyle = p2Grad;
+        ctx.fillRect(600, 0, 600, 750);
+
+        // Decorative Floor Grid Rings
+        ctx.strokeStyle = 'rgba(255, 255, 255, 0.035)';
+        ctx.lineWidth = 1;
+        for (let r = 80; r <= 380; r += 60) {
+          ctx.beginPath();
+          ctx.arc(300, 450, r, 0, Math.PI * 2);
+          ctx.stroke();
+
+          ctx.beginPath();
+          ctx.arc(900, 450, r, 0, Math.PI * 2);
+          ctx.stroke();
+        }
+
+        // Center Arena Divider Line
+        ctx.save();
+        ctx.strokeStyle = 'rgba(255, 255, 255, 0.15)';
+        ctx.lineWidth = 3;
+        ctx.setLineDash([14, 14]);
+        ctx.beginPath();
+        ctx.moveTo(600, 190);
+        ctx.lineTo(600, 730);
+        ctx.stroke();
+        ctx.restore();
+
+        // Upper-Middle Target Altar & Grand Pedestal
+        this.drawTargetAltar(ctx);
+
+        // Scoring Bowls
+        this.bowl1.draw(ctx, this.p1.score);
+        this.bowl2.draw(ctx, this.p2.score);
+
+        // Colored Balls on Floor
+        for (const b of this.balls) {
+          if (!b.isHeld) {
+            b.draw(ctx, b.colorIdx === this.targetColorIdx);
+          }
+        }
+
+        // Player Blobs
+        this.p1.draw(ctx);
+        this.p2.draw(ctx);
+
+        // Held balls drawn above players' heads
+        for (const b of this.balls) {
+          if (b.isHeld) {
+            b.draw(ctx, b.colorIdx === this.targetColorIdx);
+          }
+        }
+
+        // Particles & Confetti
+        this.particles.draw(ctx);
+      }
+
+      drawTargetAltar(ctx) {
+        const cx = 600;
+        const cy = 96;
+        const target = BALL_COLORS[this.targetColorIdx];
+        const pulse = (Math.sin(this.targetPulseAngle) + 1) * 0.5;
+
+        ctx.save();
+
+        // Radiating pulse wave
+        ctx.beginPath();
+        ctx.arc(cx, cy, 64 + pulse * 18, 0, Math.PI * 2);
+        ctx.fillStyle = target.glow;
+        ctx.globalAlpha = 0.35 - pulse * 0.2;
+        ctx.fill();
+        ctx.globalAlpha = 1;
+
+        // Pedestal Outer Base
+        const altarGrad = ctx.createRadialGradient(cx, cy - 10, 15, cx, cy, 58);
+        altarGrad.addColorStop(0, '#1e293b');
+        altarGrad.addColorStop(0.8, '#0f172a');
+        altarGrad.addColorStop(1, '#020617');
+
+        ctx.beginPath();
+        ctx.arc(cx, cy, 54, 0, Math.PI * 2);
+        ctx.fillStyle = altarGrad;
+        ctx.fill();
+
+        ctx.strokeStyle = 'rgba(255, 255, 255, 0.25)';
+        ctx.lineWidth = 3;
+        ctx.stroke();
+
+        // Glowing Target Color Core Sphere
+        const coreRadius = 34 + pulse * 2.5;
+        const sphereGrad = ctx.createRadialGradient(
+          cx - coreRadius * 0.3, cy - coreRadius * 0.3, coreRadius * 0.1,
+          cx, cy, coreRadius
+        );
+        sphereGrad.addColorStop(0, '#ffffff');
+        sphereGrad.addColorStop(0.3, target.light);
+        sphereGrad.addColorStop(0.8, target.main);
+        sphereGrad.addColorStop(1, target.dark);
+
+        ctx.beginPath();
+        ctx.arc(cx, cy, coreRadius, 0, Math.PI * 2);
+        ctx.fillStyle = sphereGrad;
+        ctx.fill();
+
+        ctx.strokeStyle = '#ffffff';
+        ctx.lineWidth = 2.5;
+        ctx.stroke();
+
+        // Target Color Crown / Check Ring
+        ctx.beginPath();
+        ctx.arc(cx, cy, coreRadius + 7, 0, Math.PI * 2);
+        ctx.strokeStyle = target.main;
+        ctx.lineWidth = 2.5;
+        ctx.setLineDash([8, 6]);
+        ctx.stroke();
+        ctx.setLineDash([]);
+
+        // Animated target indicator arrows pointing inward
+        const arrowOffset = 48 + pulse * 4;
+        ctx.fillStyle = '#ffffff';
+        ctx.font = 'bold 18px sans-serif';
+        ctx.textAlign = 'center';
+        ctx.textBaseline = 'middle';
+        ctx.fillText('▼', cx, cy - arrowOffset);
+
+        ctx.restore();
+      }
+
+      run() {
+        let lastTime = performance.now();
+        const loop = (currentTime) => {
+          const dt = Math.min((currentTime - lastTime) / 1000, 0.05);
+          lastTime = currentTime;
+
+          this.update(dt);
+          this.draw();
+
+          requestAnimationFrame(loop);
+        };
+        requestAnimationFrame(loop);
+      }
+    }
+
+    // Initialize and run game when DOM is loaded
+    window.addEventListener('DOMContentLoaded', () => {
+      const game = new ColorBowlGame();
+      game.run();
+    });
+  </script>
+</body>
+</html>

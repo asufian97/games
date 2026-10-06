@@ -1,0 +1,1464 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0, user-scalable=no">
+<title>Balloon Pop Party: 2-Player Arcade Battle</title>
+<meta name="description" content="A cheerful, fast-paced 2-player keyboard balloon popping game. Compete on one keyboard to pop balloons, grab power-ups, and get the highest score before the 60-second timer runs out!">
+<style>
+  :root {
+    --bg-sky1: #38bdf8;
+    --bg-sky2: #0284c7;
+    --p1-blue: #0284c7;
+    --p1-light: #7dd3fc;
+    --p2-red: #f43f5e;
+    --p2-light: #fda4af;
+    --font: "Segoe UI Black", "Arial Black", "Trebuchet MS", system-ui, sans-serif;
+  }
+
+  * {
+    box-sizing: border-box;
+    margin: 0;
+    padding: 0;
+    user-select: none;
+    -webkit-user-select: none;
+  }
+
+  html, body {
+    width: 100%;
+    height: 100%;
+    overflow: hidden;
+    background: #0c1829;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    font-family: var(--font);
+    color: #fff;
+  }
+
+  #game-container {
+    position: relative;
+    width: 100vw;
+    height: 100vh;
+    max-width: 1280px;
+    max-height: 820px;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+  }
+
+  canvas {
+    display: block;
+    width: 100%;
+    height: 100%;
+    object-fit: contain;
+    background: radial-gradient(circle at 50% 30%, #7dd3fc 0%, #38bdf8 45%, #0284c7 100%);
+    box-shadow: 0 20px 60px rgba(0, 0, 0, 0.65), 0 0 0 3px rgba(255, 255, 255, 0.15);
+    border-radius: 20px;
+  }
+
+  h1 {
+    position: absolute;
+    left: -9999px;
+    top: 0;
+  }
+
+  .hud-btn {
+    position: absolute;
+    bottom: 24px;
+    right: 28px;
+    background: rgba(0, 0, 0, 0.35);
+    backdrop-filter: blur(8px);
+    border: 1px solid rgba(255, 255, 255, 0.25);
+    color: #fff;
+    padding: 8px 16px;
+    border-radius: 12px;
+    cursor: pointer;
+    font-size: 14px;
+    font-weight: 800;
+    display: flex;
+    align-items: center;
+    gap: 6px;
+    transition: all 0.2s ease;
+    z-index: 10;
+  }
+  .hud-btn:hover {
+    background: rgba(0, 0, 0, 0.55);
+    transform: translateY(-2px);
+  }
+</style>
+</head>
+<body>
+
+<div id="game-container">
+  <h1>Balloon Pop Party – 2-Player Arcade Battle</h1>
+  <canvas id="gameCanvas" width="1200" height="800" aria-label="Balloon Pop Canvas Game"></canvas>
+  <button id="soundToggle" class="hud-btn" title="Toggle Sound (M)">
+    <span id="soundIcon">🔊</span> SOUND
+  </button>
+</div>
+
+<script>
+'use strict';
+
+/* ==========================================================================
+   BALLOON POP PARTY: 2-PLAYER KEYBOARD BATTLE
+   Single self-contained vanilla HTML5 Canvas + Web Audio API game.
+   ========================================================================== */
+
+const canvas = document.getElementById('gameCanvas');
+const ctx = canvas.getContext('2d');
+const soundBtn = document.getElementById('soundToggle');
+const soundIcon = document.getElementById('soundIcon');
+
+// Logical dimensions
+const CW = 1200;
+const CH = 800;
+
+// Game Typography & Theme Constants
+const FONT = '"Segoe UI Black", "Arial Black", "Trebuchet MS", system-ui, sans-serif';
+const fFont = (size, weight = '900') => `${weight} ${size}px ${FONT}`;
+
+// Match duration
+const MATCH_DURATION = 60; // 60 seconds
+
+// Game States
+const STATE_PLAYING = 1;
+const STATE_GAMEOVER = 2;
+
+// Speed constants
+const BASE_SPEED = 380;
+const BOOSTED_SPEED = 590;
+const POP_RADIUS = 60; // Needle poke radius
+
+/* ==========================================================================
+   AUDIO SYNTHESIZER (Web Audio API - 100% Procedural)
+   ========================================================================== */
+class SoundEngine {
+  constructor() {
+    this.ctx = null;
+    this.muted = false;
+  }
+
+  init() {
+    if (!this.ctx) {
+      const AudioCtx = window.AudioContext || window.webkitAudioContext;
+      if (AudioCtx) this.ctx = new AudioCtx();
+    }
+    if (this.ctx && this.ctx.state === 'suspended') {
+      this.ctx.resume();
+    }
+  }
+
+  toggleMute() {
+    this.muted = !this.muted;
+    soundIcon.textContent = this.muted ? '🔇' : '🔊';
+    return this.muted;
+  }
+
+  // Snappy, juicy rubber balloon pop
+  playPop(pitchMultiplier = 1) {
+    if (this.muted || !this.ctx) return;
+    try {
+      const now = this.ctx.currentTime;
+      // High rubber pop snap
+      const osc = this.ctx.createOscillator();
+      const gain = this.ctx.createGain();
+      osc.type = 'triangle';
+      osc.frequency.setValueAtTime(420 * pitchMultiplier, now);
+      osc.frequency.exponentialRampToValueAtTime(80, now + 0.08);
+      gain.gain.setValueAtTime(0.4, now);
+      gain.gain.exponentialRampToValueAtTime(0.01, now + 0.08);
+      osc.connect(gain);
+      gain.connect(this.ctx.destination);
+      osc.start(now);
+      osc.stop(now + 0.08);
+
+      // Noise pop burst
+      const bufferSize = this.ctx.sampleRate * 0.05;
+      const buffer = this.ctx.createBuffer(1, bufferSize, this.ctx.sampleRate);
+      const data = buffer.getChannelData(0);
+      for (let i = 0; i < bufferSize; i++) {
+        data[i] = (Math.random() * 2 - 1) * Math.exp(-i / (bufferSize * 0.3));
+      }
+      const noise = this.ctx.createBufferSource();
+      noise.buffer = buffer;
+      const noiseGain = this.ctx.createGain();
+      noiseGain.gain.setValueAtTime(0.3, now);
+      noiseGain.gain.exponentialRampToValueAtTime(0.01, now + 0.05);
+      noise.connect(noiseGain);
+      noiseGain.connect(this.ctx.destination);
+      noise.start(now);
+    } catch (e) {}
+  }
+
+  // Needle Jab / Poke Whoosh
+  playJab() {
+    if (this.muted || !this.ctx) return;
+    try {
+      const now = this.ctx.currentTime;
+      const osc = this.ctx.createOscillator();
+      const gain = this.ctx.createGain();
+      osc.type = 'sine';
+      osc.frequency.setValueAtTime(540, now);
+      osc.frequency.exponentialRampToValueAtTime(260, now + 0.07);
+      gain.gain.setValueAtTime(0.18, now);
+      gain.gain.exponentialRampToValueAtTime(0.01, now + 0.07);
+      osc.connect(gain);
+      gain.connect(this.ctx.destination);
+      osc.start(now);
+      osc.stop(now + 0.07);
+    } catch (e) {}
+  }
+
+  // Star Double Points Sparkle
+  playStar() {
+    if (this.muted || !this.ctx) return;
+    try {
+      const now = this.ctx.currentTime;
+      [587.33, 739.99, 880, 1174.66].forEach((f, i) => {
+        const osc = this.ctx.createOscillator();
+        const gain = this.ctx.createGain();
+        osc.type = 'triangle';
+        osc.frequency.setValueAtTime(f, now + i * 0.06);
+        gain.gain.setValueAtTime(0.28, now + i * 0.06);
+        gain.gain.exponentialRampToValueAtTime(0.01, now + i * 0.06 + 0.25);
+        osc.connect(gain);
+        gain.connect(this.ctx.destination);
+        osc.start(now + i * 0.06);
+        osc.stop(now + i * 0.06 + 0.25);
+      });
+    } catch (e) {}
+  }
+
+  // Lightning Speed Boost Whoosh
+  playLightning() {
+    if (this.muted || !this.ctx) return;
+    try {
+      const now = this.ctx.currentTime;
+      const osc = this.ctx.createOscillator();
+      const gain = this.ctx.createGain();
+      osc.type = 'sawtooth';
+      osc.frequency.setValueAtTime(300, now);
+      osc.frequency.linearRampToValueAtTime(900, now + 0.15);
+      gain.gain.setValueAtTime(0.25, now);
+      gain.gain.exponentialRampToValueAtTime(0.01, now + 0.2);
+      osc.connect(gain);
+      gain.connect(this.ctx.destination);
+      osc.start(now);
+      osc.stop(now + 0.2);
+    } catch (e) {}
+  }
+
+  // Bomb Explosion & Chain reaction
+  playBomb() {
+    if (this.muted || !this.ctx) return;
+    try {
+      const now = this.ctx.currentTime;
+      const osc = this.ctx.createOscillator();
+      const gain = this.ctx.createGain();
+      osc.type = 'sine';
+      osc.frequency.setValueAtTime(180, now);
+      osc.frequency.exponentialRampToValueAtTime(45, now + 0.45);
+      gain.gain.setValueAtTime(0.5, now);
+      gain.gain.exponentialRampToValueAtTime(0.01, now + 0.45);
+      osc.connect(gain);
+      gain.connect(this.ctx.destination);
+      osc.start(now);
+      osc.stop(now + 0.45);
+    } catch (e) {}
+  }
+
+  // Escaped balloon penalty
+  playEscape() {
+    if (this.muted || !this.ctx) return;
+    try {
+      const now = this.ctx.currentTime;
+      const osc = this.ctx.createOscillator();
+      const gain = this.ctx.createGain();
+      osc.type = 'sawtooth';
+      osc.frequency.setValueAtTime(220, now);
+      osc.frequency.setValueAtTime(160, now + 0.08);
+      gain.gain.setValueAtTime(0.2, now);
+      gain.gain.exponentialRampToValueAtTime(0.01, now + 0.2);
+      osc.connect(gain);
+      gain.connect(this.ctx.destination);
+      osc.start(now);
+      osc.stop(now + 0.2);
+    } catch (e) {}
+  }
+
+  // Victory fanfare
+  playVictory() {
+    if (this.muted || !this.ctx) return;
+    try {
+      const now = this.ctx.currentTime;
+      const melody = [523.25, 659.25, 783.99, 1046.50, 1318.51];
+      melody.forEach((f, i) => {
+        const osc = this.ctx.createOscillator();
+        const gain = this.ctx.createGain();
+        osc.type = 'triangle';
+        osc.frequency.setValueAtTime(f, now + i * 0.1);
+        gain.gain.setValueAtTime(0.35, now + i * 0.1);
+        gain.gain.exponentialRampToValueAtTime(0.001, now + i * 0.1 + 0.45);
+        osc.connect(gain);
+        gain.connect(this.ctx.destination);
+        osc.start(now + i * 0.1);
+        osc.stop(now + i * 0.1 + 0.45);
+      });
+    } catch (e) {}
+  }
+}
+
+const audio = new SoundEngine();
+soundBtn.addEventListener('click', () => {
+  audio.init();
+  audio.toggleMute();
+});
+
+/* ==========================================================================
+   INPUT HANDLING (Ghost-Free Simultaneous Key Map)
+   ========================================================================== */
+const keys = {};
+
+window.addEventListener('keydown', (e) => {
+  audio.init();
+  keys[e.code] = true;
+
+  if (['Space', 'ArrowUp', 'ArrowDown', 'ArrowLeft', 'ArrowRight', 'Enter'].includes(e.code)) {
+    e.preventDefault();
+  }
+
+  if (e.code === 'KeyM') {
+    audio.toggleMute();
+  }
+
+  if (gameState === STATE_GAMEOVER && (e.code === 'Space' || e.code === 'Enter')) {
+    startNewGame();
+    return;
+  }
+
+  // Trigger needle pop jabs on initial press
+  if (gameState === STATE_PLAYING) {
+    if (e.code === 'Space') {
+      player1.tryPop();
+    }
+    if (e.code === 'Enter') {
+      player2.tryPop();
+    }
+  }
+});
+
+window.addEventListener('keyup', (e) => {
+  keys[e.code] = false;
+});
+
+/* ==========================================================================
+   GAME STATE & ENTITIES
+   ========================================================================== */
+let gameState = STATE_PLAYING;
+let timeLeft = MATCH_DURATION;
+let balloons = [];
+let powerups = [];
+let particles = [];
+let floatingTexts = [];
+let clouds = [];
+let winner = null;
+
+// Background Floating Clouds
+for (let i = 0; i < 7; i++) {
+  clouds.push({
+    x: Math.random() * CW,
+    y: 60 + Math.random() * 320,
+    w: 110 + Math.random() * 90,
+    h: 40 + Math.random() * 30,
+    speed: 15 + Math.random() * 25,
+    opacity: 0.25 + Math.random() * 0.2
+  });
+}
+
+// Balloon Color Presets
+const BALLOON_COLORS = [
+  { main: '#f43f5e', light: '#fda4af', dark: '#be123c', name: 'Ruby' },
+  { main: '#3b82f6', light: '#93c5fd', dark: '#1d4ed8', name: 'Azure' },
+  { main: '#10b981', light: '#6ee7b7', dark: '#047857', name: 'Emerald' },
+  { main: '#f59e0b', light: '#fde68a', dark: '#b45309', name: 'Amber' },
+  { main: '#8b5cf6', light: '#c4b5fd', dark: '#6d28d9', name: 'Violet' },
+  { main: '#ec4899', light: '#fbcfe8', dark: '#be185d', name: 'Rose' },
+  { main: '#06b6d4', light: '#67e8f9', dark: '#0e7490', name: 'Cyan' }
+];
+
+/* ==========================================================================
+   PLAYER CLASS (Dart / Needle Copter Avatar)
+   ========================================================================== */
+class Player {
+  constructor(id, name, color, light, dark, startX, startY, icon) {
+    this.id = id;
+    this.name = name;
+    this.color = color;
+    this.light = light;
+    this.dark = dark;
+    this.icon = icon;
+    this.x = startX;
+    this.y = startY;
+    this.radius = 26;
+    this.score = 0;
+    this.poppedCount = 0;
+
+    // Movement & Orientation
+    this.vx = 0;
+    this.vy = 0;
+    this.facingX = (id === 0 ? 1 : -1);
+    this.facingY = 0;
+
+    // Needle Jab Animation
+    this.jabTimer = 0;
+    this.jabDuration = 0.14;
+
+    // Power-up Buff Timers
+    this.starTimer = 0;      // 2x points
+    this.lightningTimer = 0; // Speed boost
+  }
+
+  reset(startX, startY) {
+    this.x = startX;
+    this.y = startY;
+    this.vx = 0;
+    this.vy = 0;
+    this.facingX = (this.id === 0 ? 1 : -1);
+    this.facingY = 0;
+    this.score = 0;
+    this.poppedCount = 0;
+    this.jabTimer = 0;
+    this.starTimer = 0;
+    this.lightningTimer = 0;
+  }
+
+  tryPop() {
+    this.jabTimer = this.jabDuration;
+    audio.playJab();
+
+    // Needle tip position
+    const needleDist = 42;
+    const nx = this.x + this.facingX * needleDist;
+    const ny = this.y + this.facingY * needleDist;
+
+    // Spark particles at needle jab
+    for (let i = 0; i < 6; i++) {
+      particles.push(new Particle(
+        nx, ny,
+        (Math.random() - 0.5) * 160 + this.facingX * 90,
+        (Math.random() - 0.5) * 160 + this.facingY * 90,
+        '#ffffff', 3 + Math.random() * 3, 0.25
+      ));
+    }
+
+    // 1. Check Balloons in Pop Radius
+    let hitAny = false;
+    for (let i = balloons.length - 1; i >= 0; i--) {
+      const b = balloons[i];
+      const dist = Math.hypot(b.x - nx, b.y - ny);
+      if (dist <= POP_RADIUS + b.radius) {
+        hitAny = true;
+        this.popBalloon(b, i);
+      }
+    }
+
+    // 2. Check Power-ups in Pop Radius
+    for (let i = powerups.length - 1; i >= 0; i--) {
+      const p = powerups[i];
+      const dist = Math.hypot(p.x - nx, p.y - ny);
+      if (dist <= POP_RADIUS + p.radius) {
+        this.collectPowerup(p, i);
+      }
+    }
+  }
+
+  popBalloon(b, index) {
+    balloons.splice(index, 1);
+    this.poppedCount++;
+
+    // Calculate Points (2x if Star buff active)
+    const multiplier = this.starTimer > 0 ? 2 : 1;
+    const pts = b.points * multiplier;
+    this.score += pts;
+
+    // Pitch rises for smaller balloons
+    const pitch = b.type === 'small' ? 1.4 : (b.type === 'medium' ? 1.1 : 0.85);
+    audio.playPop(pitch);
+
+    // Floating Score Indicator
+    const textStr = multiplier > 1 ? `+${pts} (2X!) ⭐` : `+${pts}`;
+    floatingTexts.push(new FloatingText(textStr, b.x, b.y - 10, multiplier > 1 ? '#facc15' : this.light, 26));
+
+    // Rubber shreds + Confetti burst
+    for (let i = 0; i < 22; i++) {
+      particles.push(new Particle(
+        b.x, b.y,
+        (Math.random() - 0.5) * 360,
+        (Math.random() - 0.5) * 360,
+        [b.color.main, b.color.light, '#ffffff', '#facc15'][Math.floor(Math.random() * 4)],
+        4 + Math.random() * 5,
+        0.6 + Math.random() * 0.4,
+        true
+      ));
+    }
+  }
+
+  collectPowerup(p, index) {
+    powerups.splice(index, 1);
+
+    if (p.type === 'star') {
+      this.starTimer = 5.0;
+      audio.playStar();
+      floatingTexts.push(new FloatingText('2X POINTS! ⭐', p.x, p.y - 20, '#facc15', 30));
+    } else if (p.type === 'lightning') {
+      this.lightningTimer = 5.0;
+      audio.playLightning();
+      floatingTexts.push(new FloatingText('SPEED BOOST! ⚡', p.x, p.y - 20, '#38bdf8', 30));
+    } else if (p.type === 'bomb') {
+      audio.playBomb();
+      floatingTexts.push(new FloatingText('MEGA BOOM! 💣', p.x, p.y - 20, '#ef4444', 34));
+
+      // Mega shockwave particles
+      for (let i = 0; i < 40; i++) {
+        particles.push(new Particle(
+          p.x, p.y,
+          (Math.random() - 0.5) * 600,
+          (Math.random() - 0.5) * 600,
+          '#f97316', 5 + Math.random() * 6, 0.85
+        ));
+      }
+
+      // Pop ALL balloons on screen!
+      const totalToPop = balloons.length;
+      let totalPts = 0;
+      const multiplier = this.starTimer > 0 ? 2 : 1;
+
+      while (balloons.length > 0) {
+        const b = balloons.pop();
+        this.poppedCount++;
+        const pts = b.points * multiplier;
+        totalPts += pts;
+
+        // Visual burst for each
+        for (let i = 0; i < 10; i++) {
+          particles.push(new Particle(
+            b.x, b.y,
+            (Math.random() - 0.5) * 280,
+            (Math.random() - 0.5) * 280,
+            b.color.light, 3 + Math.random() * 4, 0.5, true
+          ));
+        }
+      }
+
+      this.score += totalPts;
+      if (totalPts > 0) {
+        floatingTexts.push(new FloatingText(`+${totalPts} BOMBED!`, CW / 2, CH / 2, '#fbbf24', 36));
+      }
+    }
+  }
+
+  update(dt) {
+    // Buff countdowns
+    if (this.starTimer > 0) this.starTimer -= dt;
+    if (this.lightningTimer > 0) this.lightningTimer -= dt;
+    if (this.jabTimer > 0) this.jabTimer -= dt;
+
+    // Movement speed
+    const speed = this.lightningTimer > 0 ? BOOSTED_SPEED : BASE_SPEED;
+
+    let moveX = 0;
+    let moveY = 0;
+
+    if (this.id === 0) {
+      if (keys['KeyW']) moveY -= 1;
+      if (keys['KeyS']) moveY += 1;
+      if (keys['KeyA']) moveX -= 1;
+      if (keys['KeyD']) moveX += 1;
+    } else {
+      if (keys['ArrowUp']) moveY -= 1;
+      if (keys['ArrowDown']) moveY += 1;
+      if (keys['ArrowLeft']) moveX -= 1;
+      if (keys['ArrowRight']) moveX += 1;
+    }
+
+    // Normalize diagonal movement
+    if (moveX !== 0 && moveY !== 0) {
+      moveX *= 0.7071;
+      moveY *= 0.7071;
+    }
+
+    if (moveX !== 0 || moveY !== 0) {
+      this.facingX = moveX !== 0 ? Math.sign(moveX) : this.facingX;
+      this.facingY = moveY;
+    }
+
+    this.x += moveX * speed * dt;
+    this.y += moveY * speed * dt;
+
+    // Screen bounds clamp
+    const pad = this.radius + 15;
+    this.x = Math.max(pad, Math.min(CW - pad, this.x));
+    this.y = Math.max(100, Math.min(CH - pad, this.y));
+
+    // Trail particles when boosted
+    if (this.lightningTimer > 0 && Math.random() < 0.4) {
+      particles.push(new Particle(
+        this.x + (Math.random() - 0.5) * 20,
+        this.y + (Math.random() - 0.5) * 20,
+        -moveX * 100 + (Math.random() - 0.5) * 40,
+        -moveY * 100 + (Math.random() - 0.5) * 40,
+        '#38bdf8', 3 + Math.random() * 3, 0.35
+      ));
+    }
+  }
+
+  draw(c) {
+    c.save();
+    c.translate(this.x, this.y);
+
+    // Buff Glow Aura
+    if (this.starTimer > 0) {
+      c.save();
+      c.strokeStyle = '#facc15';
+      c.lineWidth = 4;
+      c.shadowColor = '#facc15';
+      c.shadowBlur = 18;
+      c.beginPath();
+      c.arc(0, 0, this.radius + 10, 0, Math.PI * 2);
+      c.stroke();
+      c.restore();
+    }
+    if (this.lightningTimer > 0) {
+      c.save();
+      c.strokeStyle = '#38bdf8';
+      c.lineWidth = 3;
+      c.shadowColor = '#38bdf8';
+      c.shadowBlur = 16;
+      c.beginPath();
+      c.arc(0, 0, this.radius + 8, 0, Math.PI * 2);
+      c.stroke();
+      c.restore();
+    }
+
+    // Shadow underneath
+    c.fillStyle = 'rgba(0, 0, 0, 0.2)';
+    c.beginPath();
+    c.ellipse(0, this.radius + 12, this.radius * 0.9, 8, 0, 0, Math.PI * 2);
+    c.fill();
+
+    // Flapping Wings
+    const wingFlap = Math.sin(performance.now() * 0.02) * 12;
+    c.fillStyle = 'rgba(255, 255, 255, 0.7)';
+    // Left wing
+    c.beginPath();
+    c.ellipse(-this.radius * 0.8, -6 + wingFlap * 0.4, 14, 8, -0.4, 0, Math.PI * 2);
+    c.fill();
+    // Right wing
+    c.beginPath();
+    c.ellipse(this.radius * 0.8, -6 - wingFlap * 0.4, 14, 8, 0.4, 0, Math.PI * 2);
+    c.fill();
+
+    // Body Orb (Radial Gradient)
+    const grad = c.createRadialGradient(-6, -8, 4, 0, 0, this.radius);
+    grad.addColorStop(0, this.light);
+    grad.addColorStop(0.6, this.color);
+    grad.addColorStop(1, this.dark);
+    c.fillStyle = grad;
+    c.beginPath();
+    c.arc(0, 0, this.radius, 0, Math.PI * 2);
+    c.fill();
+
+    // White rim border
+    c.strokeStyle = '#ffffff';
+    c.lineWidth = 2.5;
+    c.stroke();
+
+    // Player Cute Eyes
+    const eyeOffsetX = this.facingX * 6;
+    const eyeOffsetY = this.facingY * 4;
+    c.fillStyle = '#ffffff';
+    c.beginPath();
+    c.ellipse(-7 + eyeOffsetX, -4 + eyeOffsetY, 5, 7, 0, 0, Math.PI * 2);
+    c.ellipse(7 + eyeOffsetX, -4 + eyeOffsetY, 5, 7, 0, 0, Math.PI * 2);
+    c.fill();
+
+    c.fillStyle = '#0f172a';
+    c.beginPath();
+    c.arc(-7 + eyeOffsetX + this.facingX * 1.5, -4 + eyeOffsetY, 2.5, 0, Math.PI * 2);
+    c.arc(7 + eyeOffsetX + this.facingX * 1.5, -4 + eyeOffsetY, 2.5, 0, Math.PI * 2);
+    c.fill();
+
+    // Jab Needle Extension
+    const jabDist = this.jabTimer > 0 ? (40 + (this.jabTimer / this.jabDuration) * 14) : 28;
+    const needleAngle = Math.atan2(this.facingY, this.facingX);
+
+    c.save();
+    c.rotate(needleAngle);
+
+    // Shiny Steel Needle
+    c.fillStyle = '#e2e8f0';
+    c.beginPath();
+    c.moveTo(this.radius - 2, -4);
+    c.lineTo(jabDist, 0);
+    c.lineTo(this.radius - 2, 4);
+    c.closePath();
+    c.fill();
+
+    // Gold needle base
+    c.fillStyle = '#facc15';
+    c.beginPath();
+    c.arc(this.radius, 0, 5, 0, Math.PI * 2);
+    c.fill();
+
+    // Jab pop spark visual
+    if (this.jabTimer > 0) {
+      c.fillStyle = '#ffffff';
+      c.shadowColor = '#facc15';
+      c.shadowBlur = 12;
+      c.beginPath();
+      c.arc(jabDist, 0, 6, 0, Math.PI * 2);
+      c.fill();
+    }
+    c.restore();
+
+    // Active Buff Icon Badge over head
+    if (this.starTimer > 0 || this.lightningTimer > 0) {
+      c.font = '16px sans-serif';
+      c.textAlign = 'center';
+      c.fillText(this.starTimer > 0 ? '⭐2X' : '⚡SPEED', 0, -this.radius - 12);
+    }
+
+    c.restore();
+  }
+}
+
+const player1 = new Player(0, 'BLUE', '#0284c7', '#7dd3fc', '#0369a1', 280, 560, '🔷');
+const player2 = new Player(1, 'RED', '#f43f5e', '#fda4af', '#be123c', 920, 560, '🔶');
+
+/* ==========================================================================
+   BALLOON ENTITY CLASS
+   ========================================================================== */
+class Balloon {
+  constructor() {
+    this.reset();
+  }
+
+  reset() {
+    // Determine Balloon Type / Size / Points
+    const r = Math.random();
+    if (r < 0.32) {
+      // Small Balloon: 3 Points (Fast, nimble wobble)
+      this.type = 'small';
+      this.radius = 21;
+      this.points = 3;
+      this.baseVy = -(125 + Math.random() * 35);
+      this.wobbleAmp = 28;
+      this.wobbleSpeed = 3.2;
+    } else if (r < 0.72) {
+      // Medium Balloon: 2 Points
+      this.type = 'medium';
+      this.radius = 29;
+      this.points = 2;
+      this.baseVy = -(90 + Math.random() * 25);
+      this.wobbleAmp = 22;
+      this.wobbleSpeed = 2.2;
+    } else {
+      // Big Balloon: 1 Point (Slow float, large target)
+      this.type = 'big';
+      this.radius = 38;
+      this.points = 1;
+      this.baseVy = -(65 + Math.random() * 20);
+      this.wobbleAmp = 16;
+      this.wobbleSpeed = 1.6;
+    }
+
+    this.color = BALLOON_COLORS[Math.floor(Math.random() * BALLOON_COLORS.length)];
+    this.baseX = 80 + Math.random() * (CW - 160);
+    this.x = this.baseX;
+    this.y = CH + this.radius + 20 + Math.random() * 40;
+    this.vy = this.baseVy;
+    this.phase = Math.random() * Math.PI * 2;
+    this.timeAlive = 0;
+  }
+
+  update(dt) {
+    this.timeAlive += dt;
+    this.y += this.vy * dt;
+    this.x = this.baseX + Math.sin(this.timeAlive * this.wobbleSpeed + this.phase) * this.wobbleAmp;
+
+    // Boundary clamp
+    this.x = Math.max(this.radius + 10, Math.min(CW - this.radius - 10, this.x));
+  }
+
+  draw(c) {
+    c.save();
+    c.translate(this.x, this.y);
+
+    // Subtle tilt with sine wobble
+    const tilt = Math.cos(this.timeAlive * this.wobbleSpeed + this.phase) * 0.12;
+    c.rotate(tilt);
+
+    // 1. Wiggling String trailing underneath
+    c.strokeStyle = 'rgba(255, 255, 255, 0.45)';
+    c.lineWidth = 1.5;
+    c.beginPath();
+    c.moveTo(0, this.radius * 1.15 + 4);
+    const sw1 = Math.sin(this.timeAlive * 5) * 8;
+    const sw2 = Math.cos(this.timeAlive * 4) * 10;
+    c.bezierCurveTo(sw1, this.radius + 16, sw2, this.radius + 32, sw1 * 0.5, this.radius + 48);
+    c.stroke();
+
+    // 2. Balloon Knot at base
+    c.fillStyle = this.color.dark;
+    c.beginPath();
+    c.moveTo(-4, this.radius * 1.12);
+    c.lineTo(4, this.radius * 1.12);
+    c.lineTo(6, this.radius * 1.25);
+    c.lineTo(-6, this.radius * 1.25);
+    c.closePath();
+    c.fill();
+
+    // 3. Main Balloon Body (Egg/Oval shape with 3D Radial Highlight)
+    const grad = c.createRadialGradient(-this.radius * 0.35, -this.radius * 0.4, this.radius * 0.15, 0, 0, this.radius * 1.15);
+    grad.addColorStop(0, '#ffffff');
+    grad.addColorStop(0.25, this.color.light);
+    grad.addColorStop(0.7, this.color.main);
+    grad.addColorStop(1, this.color.dark);
+
+    c.fillStyle = grad;
+    c.beginPath();
+    // Slightly taller egg oval
+    c.ellipse(0, 0, this.radius, this.radius * 1.15, 0, 0, Math.PI * 2);
+    c.fill();
+
+    // 4. Glossy Specular Reflection Streak
+    c.fillStyle = 'rgba(255, 255, 255, 0.65)';
+    c.beginPath();
+    c.ellipse(-this.radius * 0.35, -this.radius * 0.45, this.radius * 0.22, this.radius * 0.4, -0.4, 0, Math.PI * 2);
+    c.fill();
+
+    // 5. Point Value Label Badge
+    c.fillStyle = '#ffffff';
+    c.shadowColor = 'rgba(0, 0, 0, 0.4)';
+    c.shadowBlur = 4;
+    c.font = fFont(this.type === 'small' ? 14 : 16);
+    c.textAlign = 'center';
+    c.textBaseline = 'middle';
+    c.fillText(`${this.points}P`, 0, 2);
+
+    c.restore();
+  }
+}
+
+/* ==========================================================================
+   POWER-UP ENTITY CLASS (Star, Lightning, Bomb)
+   ========================================================================== */
+class PowerUp {
+  constructor(type) {
+    this.type = type; // 'star', 'lightning', 'bomb'
+    this.radius = 28;
+    this.x = 120 + Math.random() * (CW - 240);
+    this.y = CH + 40;
+    this.vy = -(80 + Math.random() * 20);
+    this.timeAlive = 0;
+  }
+
+  update(dt) {
+    this.timeAlive += dt;
+    this.y += this.vy * dt;
+    this.x += Math.sin(this.timeAlive * 2) * 40 * dt;
+  }
+
+  draw(c) {
+    c.save();
+    c.translate(this.x, this.y);
+
+    // Pulsing Glowing Orb
+    const pulse = 1 + Math.sin(this.timeAlive * 8) * 0.08;
+    c.scale(pulse, pulse);
+
+    let mainCol = '#facc15';
+    let icon = '⭐';
+    if (this.type === 'lightning') { mainCol = '#38bdf8'; icon = '⚡'; }
+    if (this.type === 'bomb') { mainCol = '#ef4444'; icon = '💣'; }
+
+    // Outer Glow Ring
+    c.strokeStyle = mainCol;
+    c.lineWidth = 3;
+    c.shadowColor = mainCol;
+    c.shadowBlur = 18;
+    c.beginPath();
+    c.arc(0, 0, this.radius, 0, Math.PI * 2);
+    c.stroke();
+
+    // Inner Glass Bubble
+    const grad = c.createRadialGradient(-6, -8, 2, 0, 0, this.radius);
+    grad.addColorStop(0, '#ffffff');
+    grad.addColorStop(0.5, mainCol);
+    grad.addColorStop(1, '#0f172a');
+    c.fillStyle = grad;
+    c.beginPath();
+    c.arc(0, 0, this.radius - 2, 0, Math.PI * 2);
+    c.fill();
+
+    // Emoji Icon in center
+    c.shadowBlur = 0;
+    c.font = '26px sans-serif';
+    c.textAlign = 'center';
+    c.textBaseline = 'middle';
+    c.fillText(icon, 0, 2);
+
+    c.restore();
+  }
+}
+
+/* ==========================================================================
+   PARTICLES & FLOATING TEXTS
+   ========================================================================== */
+class Particle {
+  constructor(x, y, vx, vy, color, size, life, isConfetti = false) {
+    this.x = x;
+    this.y = y;
+    this.vx = vx;
+    this.vy = vy;
+    this.color = color;
+    this.size = size;
+    this.life = life;
+    this.maxLife = life;
+    this.isConfetti = isConfetti;
+    this.rot = Math.random() * Math.PI * 2;
+    this.vrot = (Math.random() - 0.5) * 10;
+  }
+
+  update(dt) {
+    this.x += this.vx * dt;
+    this.y += this.vy * dt;
+    this.vy += (this.isConfetti ? 180 : 380) * dt;
+    this.rot += this.vrot * dt;
+    this.life -= dt;
+  }
+
+  draw(c) {
+    const alpha = Math.max(0, this.life / this.maxLife);
+    c.save();
+    c.globalAlpha = alpha;
+    c.translate(this.x, this.y);
+    c.rotate(this.rot);
+    c.fillStyle = this.color;
+    if (this.isConfetti) {
+      c.fillRect(-this.size, -this.size / 2, this.size * 2, this.size);
+    } else {
+      c.beginPath();
+      c.arc(0, 0, this.size, 0, Math.PI * 2);
+      c.fill();
+    }
+    c.restore();
+  }
+}
+
+class FloatingText {
+  constructor(text, x, y, color, size = 26) {
+    this.text = text;
+    this.x = x;
+    this.y = y;
+    this.color = color;
+    this.size = size;
+    this.life = 0.95;
+    this.maxLife = 0.95;
+    this.vy = -65;
+  }
+
+  update(dt) {
+    this.y += this.vy * dt;
+    this.life -= dt;
+  }
+
+  draw(c) {
+    const alpha = Math.max(0, this.life / this.maxLife);
+    const scale = 1 + (1 - alpha) * 0.35;
+    c.save();
+    c.globalAlpha = alpha;
+    c.translate(this.x, this.y);
+    c.scale(scale, scale);
+    c.font = fFont(this.size);
+    c.textAlign = 'center';
+    c.textBaseline = 'middle';
+    c.fillStyle = 'rgba(0, 0, 0, 0.7)';
+    c.fillText(this.text, 2, 2);
+    c.fillStyle = this.color;
+    c.fillText(this.text, 0, 0);
+    c.restore();
+  }
+}
+
+/* ==========================================================================
+   GAME LOGIC & SPAWNING
+   ========================================================================== */
+let balloonSpawnTimer = 0;
+let powerupSpawnTimer = 6.0;
+
+function spawnBalloon() {
+  balloons.push(new Balloon());
+}
+
+function spawnPowerUp() {
+  const types = ['star', 'lightning', 'bomb'];
+  const type = types[Math.floor(Math.random() * types.length)];
+  powerups.push(new PowerUp(type));
+}
+
+function startNewGame() {
+  gameState = STATE_PLAYING;
+  timeLeft = MATCH_DURATION;
+  balloons = [];
+  powerups = [];
+  particles = [];
+  floatingTexts = [];
+  winner = null;
+  balloonSpawnTimer = 0;
+  powerupSpawnTimer = 7.0;
+
+  player1.reset(280, 560);
+  player2.reset(920, 560);
+
+  // Initial wave of balloons
+  for (let i = 0; i < 8; i++) {
+    const b = new Balloon();
+    b.y = 200 + Math.random() * 500;
+    balloons.push(b);
+  }
+}
+
+function endGame() {
+  gameState = STATE_GAMEOVER;
+  if (player1.score > player2.score) {
+    winner = 0;
+  } else if (player2.score > player1.score) {
+    winner = 1;
+  } else {
+    winner = -1; // Tie
+  }
+
+  audio.playVictory();
+
+  // Burst of 140 victory confetti
+  const winColor = winner === 0 ? player1.color : (winner === 1 ? player2.color : '#facc15');
+  for (let i = 0; i < 150; i++) {
+    particles.push(new Particle(
+      CW / 2 + (Math.random() - 0.5) * 500,
+      CH / 2 - 80 + (Math.random() - 0.5) * 200,
+      (Math.random() - 0.5) * 600,
+      (Math.random() - 0.9) * 650,
+      [winColor, '#facc15', '#ffffff', '#38bdf8', '#fb7185'][Math.floor(Math.random() * 5)],
+      6 + Math.random() * 7,
+      2.5 + Math.random() * 1.5,
+      true
+    ));
+  }
+}
+
+/* ==========================================================================
+   MAIN UPDATE LOOP
+   ========================================================================== */
+let lastTime = performance.now();
+
+function update(dt) {
+  // 1. Clouds animation
+  clouds.forEach(cl => {
+    cl.x += cl.speed * dt;
+    if (cl.x - cl.w > CW) {
+      cl.x = -cl.w;
+      cl.y = 60 + Math.random() * 320;
+    }
+  });
+
+  if (gameState === STATE_PLAYING) {
+    // 2. Countdown Match Timer
+    timeLeft -= dt;
+    if (timeLeft <= 0) {
+      timeLeft = 0;
+      endGame();
+      return;
+    }
+
+    // 3. Balloon Spawning
+    balloonSpawnTimer -= dt;
+    if (balloonSpawnTimer <= 0) {
+      spawnBalloon();
+      // Fast dynamic spawn rate (spawns every ~0.65 to 1.1 seconds)
+      balloonSpawnTimer = 0.65 + Math.random() * 0.45;
+    }
+
+    // 4. Power-up Spawning (every ~9-13 seconds)
+    powerupSpawnTimer -= dt;
+    if (powerupSpawnTimer <= 0) {
+      spawnPowerUp();
+      powerupSpawnTimer = 9.0 + Math.random() * 4.0;
+    }
+
+    // 5. Update Players
+    player1.update(dt);
+    player2.update(dt);
+
+    // 6. Update Balloons & Check Escapes
+    for (let i = balloons.length - 1; i >= 0; i--) {
+      const b = balloons[i];
+      b.update(dt);
+
+      // Balloon escaped top border without being popped
+      if (b.y < -b.radius - 10) {
+        balloons.splice(i, 1);
+        audio.playEscape();
+
+        // Penalty: Minus 1 point from both players
+        player1.score = Math.max(0, player1.score - 1);
+        player2.score = Math.max(0, player2.score - 1);
+
+        floatingTexts.push(new FloatingText('-1 ESCAPED! 💨', b.x, 30, '#ef4444', 20));
+      }
+    }
+
+    // 7. Update Power-ups
+    for (let i = powerups.length - 1; i >= 0; i--) {
+      const p = powerups[i];
+      p.update(dt);
+      if (p.y < -p.radius - 20) {
+        powerups.splice(i, 1);
+      }
+    }
+  }
+
+  // 8. Update Particles
+  for (let i = particles.length - 1; i >= 0; i--) {
+    const p = particles[i];
+    p.update(dt);
+    if (p.life <= 0) particles.splice(i, 1);
+  }
+
+  // 9. Update Floating Texts
+  for (let i = floatingTexts.length - 1; i >= 0; i--) {
+    const ft = floatingTexts[i];
+    ft.update(dt);
+    if (ft.life <= 0) floatingTexts.splice(i, 1);
+  }
+}
+
+/* ==========================================================================
+   RENDERING ENGINE
+   ========================================================================== */
+function draw() {
+  ctx.clearRect(0, 0, CW, CH);
+
+  // 1. Cheerful Sunshine & Ambient Sky
+  drawSkyAndClouds();
+
+  // 2. Balloons
+  balloons.forEach(b => b.draw(ctx));
+
+  // 3. Power-ups
+  powerups.forEach(p => p.draw(ctx));
+
+  // 4. Players
+  player1.draw(ctx);
+  player2.draw(ctx);
+
+  // 5. Particles & Confetti
+  particles.forEach(p => p.draw(ctx));
+
+  // 6. Floating Score Texts
+  floatingTexts.forEach(ft => ft.draw(ctx));
+
+  // 7. Top Head-Up Display (Scores, Countdown Timer, Key Guides)
+  drawHUD();
+
+  // 8. Game Over Celebration Modal
+  if (gameState === STATE_GAMEOVER) {
+    drawGameOverModal();
+  }
+}
+
+/* --- Draw Helpers --- */
+
+function drawSkyAndClouds() {
+  ctx.save();
+
+  // Floating background clouds
+  ctx.fillStyle = 'rgba(255, 255, 255, 0.35)';
+  clouds.forEach(cl => {
+    ctx.beginPath();
+    ctx.arc(cl.x, cl.y, cl.h * 0.7, 0, Math.PI * 2);
+    ctx.arc(cl.x + cl.w * 0.35, cl.y - cl.h * 0.3, cl.h * 0.85, 0, Math.PI * 2);
+    ctx.arc(cl.x + cl.w * 0.7, cl.y, cl.h * 0.75, 0, Math.PI * 2);
+    ctx.fill();
+  });
+
+  // Soft bottom grass hill silhouette
+  ctx.fillStyle = '#0f766e';
+  ctx.beginPath();
+  ctx.moveTo(0, CH);
+  ctx.bezierCurveTo(CW * 0.3, CH - 50, CW * 0.7, CH - 25, CW, CH);
+  ctx.fill();
+
+  ctx.fillStyle = '#14b8a6';
+  ctx.beginPath();
+  ctx.moveTo(0, CH);
+  ctx.bezierCurveTo(CW * 0.4, CH - 30, CW * 0.8, CH - 15, CW, CH);
+  ctx.fill();
+
+  ctx.restore();
+}
+
+function drawHUD() {
+  // 1. PLAYER 1 HUD (TOP-LEFT: BLUE)
+  drawPlayerScoreCard(player1, 28, 22, false);
+
+  // 2. PLAYER 2 HUD (TOP-RIGHT: RED)
+  drawPlayerScoreCard(player2, CW - 288, 22, true);
+
+  // 3. TOP-CENTER COUNTDOWN TIMER
+  drawTimerHUD();
+}
+
+function drawPlayerScoreCard(p, x, y, isRightAlign) {
+  ctx.save();
+
+  // Glass card backdrop
+  ctx.fillStyle = 'rgba(15, 23, 42, 0.75)';
+  ctx.strokeStyle = p.color;
+  ctx.lineWidth = 2.5;
+  ctx.shadowColor = p.color;
+  ctx.shadowBlur = (p.starTimer > 0 || p.lightningTimer > 0) ? 20 : 8;
+
+  ctx.beginPath();
+  roundRect(ctx, x, y, 260, 94, 16);
+  ctx.fill();
+  ctx.stroke();
+  ctx.shadowBlur = 0;
+
+  // Player Name & Icon
+  ctx.font = fFont(20);
+  ctx.fillStyle = p.light;
+  ctx.textAlign = 'left';
+  ctx.fillText(`${p.icon} PLAYER ${p.id + 1}`, x + 16, y + 30);
+
+  // Score Number
+  ctx.font = fFont(36);
+  ctx.fillStyle = '#ffffff';
+  ctx.fillText(`${p.score}`, x + 16, y + 72);
+
+  // Balloon pops count badge
+  ctx.font = fFont(13);
+  ctx.fillStyle = '#94a3b8';
+  ctx.textAlign = 'right';
+  ctx.fillText(`POPS: ${p.poppedCount} 🎈`, x + 244, y + 30);
+
+  // Controls Keycaps Display
+  const key1 = p.id === 0 ? 'W A S D' : 'ARROWS';
+  const key2 = p.id === 0 ? 'SPACE 📍' : 'ENTER 📍';
+  const isJabPressed = p.id === 0 ? keys['Space'] : keys['Enter'];
+
+  drawKeycap(x + 130, y + 48, key1, false, p.color, 46);
+  drawKeycap(x + 182, y + 48, key2, isJabPressed, '#facc15', 64);
+
+  ctx.restore();
+}
+
+function drawKeycap(kx, ky, label, isPressed, glowCol, kw = 40) {
+  const kh = 24;
+  ctx.save();
+  ctx.fillStyle = isPressed ? glowCol : 'rgba(255, 255, 255, 0.12)';
+  ctx.strokeStyle = isPressed ? '#ffffff' : 'rgba(255, 255, 255, 0.25)';
+  ctx.lineWidth = 1.2;
+
+  ctx.beginPath();
+  roundRect(ctx, kx, ky, kw, kh, 6);
+  ctx.fill();
+  ctx.stroke();
+
+  ctx.font = fFont(11, '800');
+  ctx.fillStyle = isPressed ? '#000000' : '#ffffff';
+  ctx.textAlign = 'center';
+  ctx.textBaseline = 'middle';
+  ctx.fillText(label, kx + kw / 2, ky + kh / 2 + 1);
+
+  ctx.restore();
+}
+
+function drawTimerHUD() {
+  const cx = CW / 2;
+  const cy = 64;
+  const isUrgent = timeLeft <= 10 && gameState === STATE_PLAYING;
+
+  ctx.save();
+
+  // Timer pill backdrop
+  const pulse = isUrgent ? (1 + Math.sin(performance.now() * 0.012) * 0.05) : 1;
+  ctx.translate(cx, cy);
+  ctx.scale(pulse, pulse);
+
+  ctx.fillStyle = isUrgent ? 'rgba(239, 68, 68, 0.88)' : 'rgba(15, 23, 42, 0.82)';
+  ctx.strokeStyle = isUrgent ? '#ffffff' : 'rgba(255, 255, 255, 0.25)';
+  ctx.lineWidth = 2.5;
+  if (isUrgent) {
+    ctx.shadowColor = '#ef4444';
+    ctx.shadowBlur = 24;
+  }
+
+  ctx.beginPath();
+  roundRect(ctx, -90, -38, 180, 76, 20);
+  ctx.fill();
+  ctx.stroke();
+  ctx.shadowBlur = 0;
+
+  // Clock Emoji & Big Seconds Counter
+  const seconds = Math.ceil(timeLeft);
+  ctx.font = fFont(34);
+  ctx.fillStyle = isUrgent ? '#fef08a' : '#ffffff';
+  ctx.textAlign = 'center';
+  ctx.textBaseline = 'middle';
+  ctx.fillText(`⏱️ ${seconds}s`, 0, -2);
+
+  // Time progress bar underneath
+  const pct = Math.max(0, timeLeft / MATCH_DURATION);
+  ctx.fillStyle = 'rgba(255, 255, 255, 0.2)';
+  ctx.fillRect(-70, 22, 140, 5);
+
+  ctx.fillStyle = isUrgent ? '#facc15' : '#38bdf8';
+  ctx.fillRect(-70, 22, 140 * pct, 5);
+
+  ctx.restore();
+}
+
+/* ==========================================================================
+   GAME OVER MODAL OVERLAY
+   ========================================================================== */
+function drawGameOverModal() {
+  ctx.save();
+
+  // Dim dark backdrop
+  ctx.fillStyle = 'rgba(5, 12, 24, 0.85)';
+  ctx.fillRect(0, 0, CW, CH);
+
+  const cx = CW / 2;
+  const cy = CH / 2;
+
+  // Champion Box
+  const winColor = winner === 0 ? player1.color : (winner === 1 ? player2.color : '#facc15');
+  const winLight = winner === 0 ? player1.light : (winner === 1 ? player2.light : '#fde047');
+
+  ctx.fillStyle = 'rgba(15, 23, 42, 0.96)';
+  ctx.strokeStyle = winColor;
+  ctx.lineWidth = 4;
+  ctx.shadowColor = winColor;
+  ctx.shadowBlur = 32;
+
+  ctx.beginPath();
+  roundRect(ctx, cx - 280, cy - 220, 560, 440, 24);
+  ctx.fill();
+  ctx.stroke();
+  ctx.shadowBlur = 0;
+
+  // Trophy Icon
+  ctx.font = '68px sans-serif';
+  ctx.textAlign = 'center';
+  ctx.textBaseline = 'middle';
+  ctx.fillText('🏆', cx, cy - 140);
+
+  // Winner Announcement
+  let winTitle = 'IT\'S A TIE!';
+  if (winner === 0) winTitle = 'PLAYER 1 WINS! 🔷';
+  if (winner === 1) winTitle = 'PLAYER 2 WINS! 🔶';
+
+  ctx.font = fFont(38);
+  ctx.fillStyle = winLight;
+  ctx.fillText(winTitle, cx, cy - 60);
+
+  // Score comparison cards inside modal
+  ctx.font = fFont(22);
+  ctx.fillStyle = '#ffffff';
+  ctx.fillText(`P1: ${player1.score} PTS (${player1.poppedCount} 🎈)   vs   P2: ${player2.score} PTS (${player2.poppedCount} 🎈)`, cx, cy);
+
+  // Subtitle
+  ctx.font = fFont(16, '600');
+  ctx.fillStyle = '#94a3b8';
+  ctx.fillText('BALLOON POPPING CHAMPION!', cx, cy + 38);
+
+  // Restart Button
+  const btnW = 280;
+  const btnH = 58;
+  const btnY = cy + 85;
+
+  const pulse = 1 + Math.sin(performance.now() * 0.007) * 0.03;
+  ctx.save();
+  ctx.translate(cx, btnY + btnH / 2);
+  ctx.scale(pulse, pulse);
+
+  ctx.fillStyle = winColor;
+  ctx.shadowColor = winColor;
+  ctx.shadowBlur = 18;
+  ctx.beginPath();
+  roundRect(ctx, -btnW / 2, -btnH / 2, btnW, btnH, 14);
+  ctx.fill();
+  ctx.shadowBlur = 0;
+
+  ctx.font = fFont(20);
+  ctx.fillStyle = '#ffffff';
+  ctx.fillText('PLAY AGAIN [ SPACE ]', 0, 2);
+  ctx.restore();
+
+  ctx.restore();
+}
+
+/* Mouse click to restart */
+canvas.addEventListener('click', (e) => {
+  audio.init();
+  if (gameState === STATE_GAMEOVER) {
+    const rect = canvas.getBoundingClientRect();
+    const scaleX = CW / rect.width;
+    const scaleY = CH / rect.height;
+    const mx = (e.clientX - rect.left) * scaleX;
+    const my = (e.clientY - rect.top) * scaleY;
+
+    const cx = CW / 2;
+    const cy = CH / 2;
+    if (mx >= cx - 160 && mx <= cx + 160 && my >= cy + 70 && my <= cy + 170) {
+      startNewGame();
+    }
+  }
+});
+
+/* Helper: Canvas Rounded Rectangle */
+function roundRect(ctx, x, y, width, height, radius) {
+  ctx.moveTo(x + radius, y);
+  ctx.lineTo(x + width - radius, y);
+  ctx.quadraticCurveTo(x + width, y, x + width, y + radius);
+  ctx.lineTo(x + width, y + height - radius);
+  ctx.quadraticCurveTo(x + width, y + height, x + width - radius, y + height);
+  ctx.lineTo(x + radius, y + height);
+  ctx.quadraticCurveTo(x, y + height, x, y + height - radius);
+  ctx.lineTo(x, y + radius);
+  ctx.quadraticCurveTo(x, y, x + radius, y);
+}
+
+/* ==========================================================================
+   GAME LOOP
+   ========================================================================== */
+function gameLoop(now) {
+  const dt = Math.min((now - lastTime) / 1000, 0.1);
+  lastTime = now;
+
+  update(dt);
+  draw();
+
+  requestAnimationFrame(gameLoop);
+}
+
+// Start game
+startNewGame();
+requestAnimationFrame(gameLoop);
+
+</script>
+</body>
+</html>

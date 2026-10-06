@@ -1,0 +1,2440 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>Dual Maze: 2-Player Co-Op Escape</title>
+<meta name="description" content="A 2-player cooperative maze escape game on a shared keyboard. Player 1 moves horizontally, Player 2 moves vertically. Navigate traps, find keys, and escape together!">
+<style>
+  :root {
+    --bg-dark: #0a0e17;
+    --panel-bg: rgba(16, 24, 39, 0.85);
+    --panel-border: rgba(255, 255, 255, 0.12);
+    --p1-blue: #38bdf8;
+    --p1-blue-glow: rgba(56, 189, 248, 0.45);
+    --p1-blue-dark: #0284c7;
+    --p2-red: #f43f5e;
+    --p2-red-glow: rgba(244, 63, 94, 0.45);
+    --p2-red-dark: #e11d48;
+    --accent-gold: #fbbf24;
+    --accent-green: #34d399;
+    --text-main: #f1f5f9;
+    --text-muted: #94a3b8;
+    --font-ui: "Outfit", "Segoe UI", -apple-system, BlinkMacSystemFont, sans-serif;
+  }
+
+  * {
+    box-sizing: border-box;
+    margin: 0;
+    padding: 0;
+    user-select: none;
+    -webkit-user-select: none;
+  }
+
+  body {
+    background: var(--bg-dark);
+    color: var(--text-main);
+    font-family: var(--font-ui);
+    min-height: 100vh;
+    overflow: hidden;
+    display: flex;
+    flex-direction: column;
+    align-items: center;
+    justify-content: center;
+  }
+
+  /* Ambient Level Glow Backdrop */
+  #ambientBackdrop {
+    position: fixed;
+    top: 0;
+    left: 0;
+    width: 100vw;
+    height: 100vh;
+    pointer-events: none;
+    z-index: 0;
+    transition: background 1s ease;
+    background: radial-gradient(circle at 50% 40%, rgba(16, 185, 129, 0.15) 0%, rgba(10, 14, 23, 0.95) 75%);
+  }
+
+  /* Main Game Container */
+  .game-container {
+    position: relative;
+    z-index: 10;
+    width: 100%;
+    max-width: 1360px;
+    height: 100vh;
+    max-height: 940px;
+    display: flex;
+    flex-direction: column;
+    padding: 12px 18px 16px;
+    gap: 10px;
+  }
+
+  /* Top Navigation & Status Bar */
+  .top-hud {
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    background: var(--panel-bg);
+    border: 1px solid var(--panel-border);
+    border-radius: 18px;
+    padding: 10px 22px;
+    box-shadow: 0 10px 30px rgba(0, 0, 0, 0.4);
+    backdrop-filter: blur(12px);
+    -webkit-backdrop-filter: blur(12px);
+    gap: 16px;
+  }
+
+  .hud-left {
+    display: flex;
+    align-items: center;
+    gap: 16px;
+  }
+
+  .level-badge {
+    display: flex;
+    align-items: center;
+    gap: 8px;
+    background: rgba(255, 255, 255, 0.08);
+    border: 1px solid rgba(255, 255, 255, 0.15);
+    padding: 6px 14px;
+    border-radius: 12px;
+    font-size: 15px;
+    font-weight: 800;
+    letter-spacing: 0.5px;
+  }
+
+  .lives-tracker {
+    display: flex;
+    align-items: center;
+    gap: 6px;
+    background: rgba(244, 63, 94, 0.12);
+    border: 1px solid rgba(244, 63, 94, 0.3);
+    padding: 5px 12px;
+    border-radius: 12px;
+  }
+
+  .heart-icon {
+    font-size: 18px;
+    transition: transform 0.2s cubic-bezier(0.175, 0.885, 0.32, 1.275);
+    display: inline-block;
+  }
+  .heart-icon.lost {
+    opacity: 0.25;
+    filter: grayscale(1);
+    transform: scale(0.8);
+  }
+
+  .hud-center {
+    display: flex;
+    align-items: center;
+    gap: 20px;
+  }
+
+  .timer-box {
+    display: flex;
+    align-items: center;
+    gap: 8px;
+    font-family: monospace;
+    font-size: 20px;
+    font-weight: 900;
+    color: var(--accent-gold);
+    background: rgba(251, 191, 36, 0.1);
+    border: 1px solid rgba(251, 191, 36, 0.25);
+    padding: 5px 14px;
+    border-radius: 12px;
+  }
+
+  .collectibles-bar {
+    display: flex;
+    align-items: center;
+    gap: 14px;
+    font-size: 15px;
+    font-weight: 700;
+  }
+
+  .item-pill {
+    display: flex;
+    align-items: center;
+    gap: 6px;
+    background: rgba(255, 255, 255, 0.06);
+    border: 1px solid rgba(255, 255, 255, 0.12);
+    padding: 4px 10px;
+    border-radius: 10px;
+  }
+  .item-pill.active-key {
+    background: rgba(251, 191, 36, 0.2);
+    border-color: var(--accent-gold);
+    color: #fff;
+    box-shadow: 0 0 14px rgba(251, 191, 36, 0.4);
+    animation: pulseGlow 1.5s infinite;
+  }
+  .item-pill.active-torch {
+    background: rgba(249, 115, 22, 0.25);
+    border-color: #f97316;
+    color: #fff;
+    box-shadow: 0 0 14px rgba(249, 115, 22, 0.4);
+  }
+
+  .hud-right {
+    display: flex;
+    align-items: center;
+    gap: 10px;
+  }
+
+  .hud-btn {
+    background: rgba(255, 255, 255, 0.08);
+    border: 1px solid rgba(255, 255, 255, 0.15);
+    color: var(--text-main);
+    padding: 7px 14px;
+    border-radius: 10px;
+    font-size: 13px;
+    font-weight: 700;
+    cursor: pointer;
+    display: inline-flex;
+    align-items: center;
+    gap: 6px;
+    transition: all 0.2s ease;
+  }
+  .hud-btn:hover {
+    background: rgba(255, 255, 255, 0.2);
+    transform: translateY(-1px);
+  }
+
+  /* Main Playfield Layout: Player 1 HUD, Canvas, Player 2 HUD */
+  .playfield-row {
+    flex: 1;
+    display: flex;
+    align-items: stretch;
+    gap: 14px;
+    position: relative;
+    overflow: hidden;
+  }
+
+  /* Player Controls Sidebars */
+  .player-sidebar {
+    width: 175px;
+    background: var(--panel-bg);
+    border: 1px solid var(--panel-border);
+    border-radius: 20px;
+    padding: 16px 14px;
+    display: flex;
+    flex-direction: column;
+    align-items: center;
+    justify-content: space-between;
+    box-shadow: 0 10px 30px rgba(0, 0, 0, 0.35);
+    backdrop-filter: blur(12px);
+    -webkit-backdrop-filter: blur(12px);
+    transition: border-color 0.3s ease, box-shadow 0.3s ease;
+  }
+
+  .sidebar-p1 {
+    border-top: 4px solid var(--p1-blue);
+  }
+  .sidebar-p1.active-moving {
+    border-color: var(--p1-blue);
+    box-shadow: 0 0 25px var(--p1-blue-glow);
+  }
+
+  .sidebar-p2 {
+    border-top: 4px solid var(--p2-red);
+  }
+  .sidebar-p2.active-moving {
+    border-color: var(--p2-red);
+    box-shadow: 0 0 25px var(--p2-red-glow);
+  }
+
+  .p-header {
+    text-align: center;
+    display: flex;
+    flex-direction: column;
+    align-items: center;
+    gap: 4px;
+  }
+
+  .p-tag {
+    font-size: 11px;
+    font-weight: 900;
+    letter-spacing: 1px;
+    text-transform: uppercase;
+    padding: 2px 8px;
+    border-radius: 999px;
+  }
+  .p1-tag { background: rgba(56, 189, 248, 0.15); color: var(--p1-blue); }
+  .p2-tag { background: rgba(244, 63, 94, 0.15); color: var(--p2-red); }
+
+  .p-name {
+    font-size: 16px;
+    font-weight: 900;
+  }
+
+  .p-role {
+    font-size: 12px;
+    color: var(--text-muted);
+    font-weight: 600;
+  }
+
+  .keys-display {
+    display: flex;
+    flex-direction: column;
+    align-items: center;
+    gap: 8px;
+    width: 100%;
+  }
+
+  .keys-horizontal {
+    display: flex;
+    gap: 10px;
+    justify-content: center;
+  }
+
+  .keys-vertical {
+    display: flex;
+    flex-direction: column;
+    gap: 10px;
+    align-items: center;
+  }
+
+  .key-indicator {
+    width: 52px;
+    height: 52px;
+    background: rgba(255, 255, 255, 0.06);
+    border: 2px solid rgba(255, 255, 255, 0.15);
+    border-radius: 12px;
+    display: flex;
+    flex-direction: column;
+    align-items: center;
+    justify-content: center;
+    font-weight: 900;
+    font-size: 15px;
+    box-shadow: 0 4px 10px rgba(0,0,0,0.3);
+    transition: all 0.1s ease;
+    color: var(--text-muted);
+  }
+
+  .key-indicator span.sub {
+    font-size: 10px;
+    opacity: 0.7;
+    margin-top: -2px;
+  }
+
+  /* Active Key Glow States */
+  .key-indicator.p1-active {
+    background: var(--p1-blue);
+    border-color: #fff;
+    color: #0b1329;
+    box-shadow: 0 0 20px var(--p1-blue-glow), inset 0 2px 4px rgba(255, 255, 255, 0.6);
+    transform: translateY(2px) scale(0.96);
+  }
+
+  .key-indicator.p2-active {
+    background: var(--p2-red);
+    border-color: #fff;
+    color: #fff;
+    box-shadow: 0 0 20px var(--p2-red-glow), inset 0 2px 4px rgba(255, 255, 255, 0.6);
+    transform: translateY(2px) scale(0.96);
+  }
+
+  .signal-box {
+    width: 100%;
+    background: rgba(255, 255, 255, 0.04);
+    border: 1px dashed rgba(255, 255, 255, 0.15);
+    border-radius: 12px;
+    padding: 10px 8px;
+    text-align: center;
+    display: flex;
+    flex-direction: column;
+    align-items: center;
+    gap: 4px;
+  }
+
+  .signal-btn {
+    background: rgba(255, 255, 255, 0.08);
+    border: 1px solid rgba(255, 255, 255, 0.2);
+    border-radius: 8px;
+    color: #fff;
+    font-size: 12px;
+    font-weight: 800;
+    padding: 4px 10px;
+    cursor: pointer;
+    transition: all 0.15s ease;
+  }
+  .signal-btn:active, .signal-btn.active {
+    background: #fff;
+    color: #000;
+    transform: scale(0.95);
+  }
+
+  .signal-tip {
+    font-size: 11px;
+    color: var(--text-muted);
+  }
+
+  /* Center Canvas Viewport */
+  .viewport-container {
+    flex: 1;
+    background: #000;
+    border: 1px solid var(--panel-border);
+    border-radius: 20px;
+    position: relative;
+    overflow: hidden;
+    box-shadow: inset 0 0 40px rgba(0, 0, 0, 0.8), 0 10px 40px rgba(0, 0, 0, 0.5);
+    display: flex;
+    align-items: center;
+    justify-content: center;
+  }
+
+  canvas#gameCanvas {
+    width: 100%;
+    height: 100%;
+    display: block;
+    image-rendering: pixelated;
+  }
+
+  /* Speed Boost Notification Banner */
+  #speedBanner {
+    position: absolute;
+    top: 16px;
+    background: linear-gradient(90deg, #f59e0b, #fbbf24);
+    color: #000;
+    font-size: 13px;
+    font-weight: 900;
+    padding: 6px 18px;
+    border-radius: 999px;
+    box-shadow: 0 0 20px rgba(251, 191, 36, 0.6);
+    display: none;
+    align-items: center;
+    gap: 6px;
+    animation: bannerPulse 0.8s infinite alternate ease-in-out;
+    z-index: 20;
+  }
+
+  @keyframes bannerPulse {
+    from { transform: scale(1); }
+    to { transform: scale(1.06); }
+  }
+
+  /* Overlays & Modals */
+  .modal-overlay {
+    position: absolute;
+    top: 0;
+    left: 0;
+    width: 100%;
+    height: 100%;
+    background: rgba(10, 14, 23, 0.88);
+    backdrop-filter: blur(10px);
+    -webkit-backdrop-filter: blur(10px);
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    z-index: 100;
+    opacity: 0;
+    pointer-events: none;
+    transition: opacity 0.3s ease;
+  }
+  .modal-overlay.active {
+    opacity: 1;
+    pointer-events: auto;
+  }
+
+  .modal-card {
+    background: rgba(19, 29, 49, 0.95);
+    border: 1px solid rgba(255, 255, 255, 0.2);
+    border-radius: 24px;
+    padding: 36px 44px;
+    width: 90%;
+    max-width: 540px;
+    text-align: center;
+    box-shadow: 0 25px 70px rgba(0, 0, 0, 0.7);
+    display: flex;
+    flex-direction: column;
+    align-items: center;
+    gap: 18px;
+    transform: scale(0.9);
+    transition: transform 0.3s cubic-bezier(0.175, 0.885, 0.32, 1.275);
+  }
+  .modal-overlay.active .modal-card {
+    transform: scale(1);
+  }
+
+  .modal-icon {
+    font-size: 58px;
+    filter: drop-shadow(0 6px 14px rgba(0,0,0,0.4));
+  }
+
+  .modal-title {
+    font-size: 30px;
+    font-weight: 900;
+    letter-spacing: -0.5px;
+  }
+
+  .modal-sub {
+    font-size: 15px;
+    color: var(--text-muted);
+    line-height: 1.5;
+  }
+
+  /* Difficulty Selector in Start Menu */
+  .difficulty-tabs {
+    display: flex;
+    gap: 10px;
+    width: 100%;
+    margin-top: 4px;
+  }
+
+  .diff-btn {
+    flex: 1;
+    padding: 10px 8px;
+    border-radius: 12px;
+    background: rgba(255, 255, 255, 0.06);
+    border: 1px solid rgba(255, 255, 255, 0.12);
+    color: var(--text-muted);
+    font-size: 13px;
+    font-weight: 800;
+    cursor: pointer;
+    transition: all 0.2s ease;
+    display: flex;
+    flex-direction: column;
+    align-items: center;
+    gap: 4px;
+  }
+  .diff-btn:hover {
+    background: rgba(255, 255, 255, 0.12);
+  }
+  .diff-btn.active {
+    background: rgba(56, 189, 248, 0.18);
+    border-color: var(--p1-blue);
+    color: #fff;
+    box-shadow: 0 0 16px rgba(56, 189, 248, 0.3);
+  }
+  .diff-btn.diff-hard.active {
+    background: rgba(244, 63, 94, 0.18);
+    border-color: var(--p2-red);
+    box-shadow: 0 0 16px rgba(244, 63, 94, 0.3);
+  }
+
+  .diff-desc {
+    font-size: 11px;
+    font-weight: 500;
+    opacity: 0.8;
+  }
+
+  /* Co-op Concept Showcase Box */
+  .concept-box {
+    width: 100%;
+    background: rgba(0, 0, 0, 0.25);
+    border: 1px solid rgba(255, 255, 255, 0.1);
+    border-radius: 16px;
+    padding: 14px 18px;
+    display: flex;
+    align-items: center;
+    justify-content: space-around;
+    font-size: 13px;
+  }
+  .concept-col {
+    display: flex;
+    flex-direction: column;
+    align-items: center;
+    gap: 4px;
+  }
+
+  .modal-actions {
+    display: flex;
+    gap: 12px;
+    width: 100%;
+    margin-top: 6px;
+  }
+
+  .action-btn-primary {
+    flex: 1;
+    background: linear-gradient(135deg, var(--p1-blue-dark), var(--p1-blue));
+    color: #fff;
+    border: none;
+    border-radius: 14px;
+    padding: 14px 20px;
+    font-size: 16px;
+    font-weight: 900;
+    cursor: pointer;
+    box-shadow: 0 6px 20px rgba(56, 189, 248, 0.4);
+    transition: all 0.2s ease;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    gap: 8px;
+  }
+  .action-btn-primary:hover {
+    transform: translateY(-2px);
+    box-shadow: 0 8px 26px rgba(56, 189, 248, 0.6);
+  }
+
+  .action-btn-secondary {
+    background: rgba(255, 255, 255, 0.08);
+    border: 1px solid rgba(255, 255, 255, 0.15);
+    color: var(--text-main);
+    border-radius: 14px;
+    padding: 14px 20px;
+    font-size: 15px;
+    font-weight: 800;
+    cursor: pointer;
+    transition: all 0.2s ease;
+  }
+  .action-btn-secondary:hover {
+    background: rgba(255, 255, 255, 0.18);
+  }
+
+  /* Score Table in Modals */
+  .stat-grid {
+    display: grid;
+    grid-template-columns: repeat(3, 1fr);
+    gap: 12px;
+    width: 100%;
+    margin: 4px 0;
+  }
+
+  .stat-card {
+    background: rgba(0, 0, 0, 0.3);
+    border: 1px solid rgba(255, 255, 255, 0.08);
+    border-radius: 12px;
+    padding: 10px;
+    display: flex;
+    flex-direction: column;
+    align-items: center;
+    gap: 4px;
+  }
+  .stat-val {
+    font-size: 20px;
+    font-weight: 900;
+    color: var(--accent-gold);
+    font-family: monospace;
+  }
+  .stat-lbl {
+    font-size: 11px;
+    color: var(--text-muted);
+    font-weight: 700;
+    text-transform: uppercase;
+  }
+
+  /* Animations */
+  @keyframes pulseGlow {
+    0%, 100% { opacity: 0.8; transform: scale(1); }
+    50% { opacity: 1; transform: scale(1.05); }
+  }
+
+  /* Screen Shake effect applied to canvas container */
+  .screen-shake {
+    animation: shakeAnim 0.35s cubic-bezier(0.36, 0.07, 0.19, 0.97) both;
+  }
+
+  @keyframes shakeAnim {
+    10%, 90% { transform: translate3d(-3px, 1px, 0); }
+    20%, 80% { transform: translate3d(4px, -2px, 0); }
+    30%, 50%, 70% { transform: translate3d(-5px, 3px, 0); }
+    40%, 60% { transform: translate3d(5px, -3px, 0); }
+  }
+</style>
+</head>
+<body>
+
+<div id="ambientBackdrop"></div>
+
+<div class="game-container">
+  <!-- Top HUD -->
+  <header class="top-hud">
+    <div class="hud-left">
+      <div class="level-badge" id="levelBadge">
+        <span id="levelIcon">🌿</span>
+        <span id="levelName">Level 1: Forest Ruins</span>
+      </div>
+      <div class="lives-tracker" id="livesTracker" title="Shared Team Lives">
+        <span class="heart-icon" id="heart1">💖</span>
+        <span class="heart-icon" id="heart2">💖</span>
+        <span class="heart-icon" id="heart3">💖</span>
+      </div>
+    </div>
+
+    <div class="hud-center">
+      <div class="timer-box" title="Escape Timer">
+        <span>⏱️</span> <span id="timerDisplay">00:00.0</span>
+      </div>
+
+      <div class="collectibles-bar">
+        <div class="item-pill" id="keyPill" title="Dungeon Key">
+          <span>🔑</span> <span id="keyStatus">0/1</span>
+        </div>
+        <div class="item-pill" id="starsPill" title="Level Stars">
+          <span>⭐</span> <span id="starsCount">0/3</span>
+        </div>
+        <div class="item-pill" id="gemsPill" title="Bonus Gems Score">
+          <span>💎</span> <span id="gemsCount">0</span>
+        </div>
+      </div>
+    </div>
+
+    <div class="hud-right">
+      <button class="hud-btn" id="muteBtn" title="Toggle Calming Audio (M)">
+        <span id="muteIcon">🔊</span> SOUND
+      </button>
+      <button class="hud-btn" id="restartBtn" title="Restart Level">
+        <span>🔄</span> RETRY
+      </button>
+      <button class="hud-btn" id="menuBtn" title="Menu">
+        <span>⚙️</span> MENU
+      </button>
+    </div>
+  </header>
+
+  <!-- Playfield Row: P1 Sidebar, Viewport Canvas, P2 Sidebar -->
+  <main class="playfield-row">
+    <!-- Player 1 (Blue) Sidebar -->
+    <aside class="player-sidebar sidebar-p1" id="p1Sidebar">
+      <div class="p-header">
+        <div class="p-tag p1-tag">PLAYER 1</div>
+        <div class="p-name" style="color: var(--p1-blue);">BLUE NAV</div>
+        <div class="p-role">↔️ Horizontal Only</div>
+      </div>
+
+      <div class="keys-display">
+        <div class="keys-horizontal">
+          <div class="key-indicator" id="keyA">
+            A
+            <span class="sub">LEFT</span>
+          </div>
+          <div class="key-indicator" id="keyD">
+            D
+            <span class="sub">RIGHT</span>
+          </div>
+        </div>
+      </div>
+
+      <div class="signal-box">
+        <button class="signal-btn" id="sigQBtn">Q: SIGNAL ➡️</button>
+        <div class="signal-tip">Point direction to partner</div>
+      </div>
+    </aside>
+
+    <!-- Center Canvas Viewport -->
+    <section class="viewport-container" id="viewportContainer">
+      <canvas id="gameCanvas"></canvas>
+      <div id="speedBanner">⚡ STAR SPEED BOOST! 5s</div>
+    </section>
+
+    <!-- Player 2 (Red) Sidebar -->
+    <aside class="player-sidebar sidebar-p2" id="p2Sidebar">
+      <div class="p-header">
+        <div class="p-tag p2-tag">PLAYER 2</div>
+        <div class="p-name" style="color: var(--p2-red);">RED NAV</div>
+        <div class="p-role">↕️ Vertical Only</div>
+      </div>
+
+      <div class="keys-display">
+        <div class="keys-vertical">
+          <div class="key-indicator" id="keyUp">
+            ▲
+            <span class="sub">UP</span>
+          </div>
+          <div class="key-indicator" id="keyDown">
+            ▼
+            <span class="sub">DOWN</span>
+          </div>
+        </div>
+      </div>
+
+      <div class="signal-box">
+        <button class="signal-btn" id="sigLBtn">L: SIGNAL ⬆️</button>
+        <div class="signal-tip">Point direction to partner</div>
+      </div>
+    </aside>
+  </main>
+</div>
+
+<!-- MODAL: START / TITLE SCREEN -->
+<div class="modal-overlay active" id="startModal">
+  <div class="modal-card">
+    <div class="modal-icon">🌀</div>
+    <h1 class="modal-title">DUAL MAZE: CO-OP ESCAPE</h1>
+    <p class="modal-sub">Two players trapped together. You control the <strong>SAME explorer</strong>: Player 1 moves horizontally, Player 2 moves vertically. Pure cooperative synergy!</p>
+
+    <div class="concept-box">
+      <div class="concept-col" style="color: var(--p1-blue);">
+        <strong>🔷 Player 1</strong>
+        <span>Keys: <kbd>A</kbd> <kbd>D</kbd></span>
+        <span style="font-size: 11px;">Horizontal Move</span>
+      </div>
+      <div style="font-size: 20px; font-weight: 900; opacity: 0.5;">+</div>
+      <div class="concept-col" style="color: var(--p2-red);">
+        <strong>🔶 Player 2</strong>
+        <span>Keys: <kbd>▲</kbd> <kbd>▼</kbd></span>
+        <span style="font-size: 11px;">Vertical Move</span>
+      </div>
+    </div>
+
+    <div style="width: 100%; text-align: left;">
+      <label style="font-size: 12px; font-weight: 800; color: var(--text-muted); text-transform: uppercase;">Select Difficulty:</label>
+      <div class="difficulty-tabs">
+        <button class="diff-btn" id="diffEasyBtn" data-diff="easy">
+          <span>🌸 Easy</span>
+          <span class="diff-desc">Smaller maze, no traps</span>
+        </button>
+        <button class="diff-btn active" id="diffMedBtn" data-diff="medium">
+          <span>⚡ Medium</span>
+          <span class="diff-desc">Classic traps & keys</span>
+        </button>
+        <button class="diff-btn diff-hard" id="diffHardBtn" data-diff="hard">
+          <span>💀 Hard</span>
+          <span class="diff-desc">Large maze, dark zones</span>
+        </button>
+      </div>
+    </div>
+
+    <div class="stat-card" style="width: 100%; padding: 8px 12px;" id="bestTimeDisplay">
+      <span class="stat-lbl">Best Medium Time</span>
+      <span class="stat-val" id="bestTimeVal">--:--.-</span>
+    </div>
+
+    <div class="modal-actions">
+      <button class="action-btn-primary" id="startAdventureBtn">
+        <span>🚀</span> START ESCAPE
+      </button>
+    </div>
+  </div>
+</div>
+
+<!-- MODAL: LEVEL COMPLETE -->
+<div class="modal-overlay" id="levelCompleteModal">
+  <div class="modal-card">
+    <div class="modal-icon">🎉</div>
+    <h2 class="modal-title" id="completeTitle">Level 1 Cleared!</h2>
+    <p class="modal-sub" id="completeSub">Great teamwork! You navigated the ruins together.</p>
+
+    <div class="stat-grid">
+      <div class="stat-card">
+        <span class="stat-lbl">Level Time</span>
+        <span class="stat-val" id="levelTimeVal">00:42.5</span>
+      </div>
+      <div class="stat-card">
+        <span class="stat-lbl">Stars Found</span>
+        <span class="stat-val" id="levelStarsVal">⭐ 3/3</span>
+      </div>
+      <div class="stat-card">
+        <span class="stat-lbl">Total Score</span>
+        <span class="stat-val" id="levelGemsVal">💎 1,250</span>
+      </div>
+    </div>
+
+    <div class="modal-actions">
+      <button class="action-btn-primary" id="nextLevelBtn">
+        <span>➡️</span> NEXT LEVEL
+      </button>
+    </div>
+  </div>
+</div>
+
+<!-- MODAL: GAME OVER (OUT OF LIVES) -->
+<div class="modal-overlay" id="gameOverModal">
+  <div class="modal-card">
+    <div class="modal-icon">💔</div>
+    <h2 class="modal-title" style="color: var(--p2-red);">All Lives Lost!</h2>
+    <p class="modal-sub">You fell to the maze traps. Coordinate your movements carefully and try again!</p>
+
+    <div class="modal-actions">
+      <button class="action-btn-primary" id="retryLevelBtn">
+        <span>🔄</span> RETRY THIS LEVEL
+      </button>
+      <button class="action-btn-secondary" id="restartAllBtn">
+        <span>🏠</span> MAIN MENU
+      </button>
+    </div>
+  </div>
+</div>
+
+<!-- MODAL: GRAND VICTORY (ALL 5 LEVELS BEATEN) -->
+<div class="modal-overlay" id="victoryModal">
+  <div class="modal-card">
+    <div class="modal-icon">🏆</div>
+    <h1 class="modal-title" style="color: var(--accent-gold);">MAZE CONQUERED!</h1>
+    <p class="modal-sub">Incredible co-op mastery! You navigated all 5 treacherous maze realms together and escaped into the light!</p>
+
+    <div class="stat-grid">
+      <div class="stat-card">
+        <span class="stat-lbl">Total Time</span>
+        <span class="stat-val" id="victoryTimeVal">04:12.8</span>
+      </div>
+      <div class="stat-card">
+        <span class="stat-lbl">Total Stars</span>
+        <span class="stat-val" id="victoryStarsVal">15 / 15</span>
+      </div>
+      <div class="stat-card">
+        <span class="stat-lbl">Final Score</span>
+        <span class="stat-val" id="victoryScoreVal">6,800</span>
+      </div>
+    </div>
+
+    <div style="background: rgba(251, 191, 36, 0.15); border: 1px solid var(--accent-gold); border-radius: 12px; padding: 10px 16px; width: 100%;">
+      <span style="font-size: 13px; font-weight: 800; color: #fbbf24;">TEAMWORK RATING:</span>
+      <strong style="font-size: 16px; color: #fff; display: block; margin-top: 2px;" id="teamworkRating">🌟 Telepathic Duo (Rank S)</strong>
+    </div>
+
+    <div class="modal-actions">
+      <button class="action-btn-primary" id="playAgainVictoryBtn">
+        <span>✨</span> PLAY AGAIN
+      </button>
+    </div>
+  </div>
+</div>
+
+<script>
+'use strict';
+
+/* ==========================================================================
+   LEVEL DEFINITIONS & THEMES
+   ========================================================================== */
+const LEVELS = [
+  {
+    num: 1,
+    title: 'Forest Ruins',
+    icon: '🌿',
+    baseCols: 11,
+    baseRows: 11,
+    wallColor: '#1e4a2d',
+    wallTopColor: '#34d399',
+    floorColor: '#0c2417',
+    ambientGlow: 'radial-gradient(circle at 50% 40%, rgba(16, 185, 129, 0.28) 0%, rgba(10, 14, 23, 0.95) 75%)',
+    bgParticles: 'leaves',
+    hasKey: false,
+    hasSpikes: false,
+    hasDarkness: false,
+    movingWalls: 0
+  },
+  {
+    num: 2,
+    title: 'Castle Dungeon',
+    icon: '🏰',
+    baseCols: 13,
+    baseRows: 13,
+    wallColor: '#333852',
+    wallTopColor: '#6366f1',
+    floorColor: '#141829',
+    ambientGlow: 'radial-gradient(circle at 50% 40%, rgba(99, 102, 241, 0.28) 0%, rgba(10, 14, 23, 0.95) 75%)',
+    bgParticles: 'embers',
+    hasKey: true,
+    hasSpikes: true,
+    hasDarkness: false,
+    movingWalls: 0
+  },
+  {
+    num: 3,
+    title: 'Underwater Cave',
+    icon: '🌊',
+    baseCols: 15,
+    baseRows: 15,
+    wallColor: '#0e5a87',
+    wallTopColor: '#38bdf8',
+    floorColor: '#07263d',
+    ambientGlow: 'radial-gradient(circle at 50% 40%, rgba(14, 165, 233, 0.3) 0%, rgba(10, 14, 23, 0.95) 75%)',
+    bgParticles: 'bubbles',
+    hasKey: true,
+    hasSpikes: true,
+    hasDarkness: true,
+    movingWalls: 1
+  },
+  {
+    num: 4,
+    title: 'Volcano Tunnels',
+    icon: '🌋',
+    baseCols: 17,
+    baseRows: 17,
+    wallColor: '#5c1010',
+    wallTopColor: '#f87171',
+    floorColor: '#240808',
+    ambientGlow: 'radial-gradient(circle at 50% 40%, rgba(239, 68, 68, 0.3) 0%, rgba(10, 14, 23, 0.95) 75%)',
+    bgParticles: 'cinders',
+    hasKey: true,
+    hasSpikes: true,
+    hasDarkness: false,
+    movingWalls: 2
+  },
+  {
+    num: 5,
+    title: 'Space Station',
+    icon: '🚀',
+    baseCols: 19,
+    baseRows: 19,
+    wallColor: '#2e266b',
+    wallTopColor: '#c084fc',
+    floorColor: '#10102b',
+    ambientGlow: 'radial-gradient(circle at 50% 40%, rgba(168, 85, 247, 0.35) 0%, rgba(10, 14, 23, 0.95) 75%)',
+    bgParticles: 'stardust',
+    hasKey: true,
+    hasSpikes: true,
+    hasDarkness: true,
+    movingWalls: 3
+  }
+];
+
+/* ==========================================================================
+   AUDIO SYNTHESIZER (Gentle Web Audio API SFX & Ambient Chords)
+   ========================================================================== */
+class SoundEngine {
+  constructor() {
+    this.ctx = null;
+    this.muted = false;
+  }
+
+  init() {
+    if (!this.ctx) {
+      const AudioContextClass = window.AudioContext || window.webkitAudioContext;
+      if (AudioContextClass) this.ctx = new AudioContextClass();
+    }
+    if (this.ctx && this.ctx.state === 'suspended') {
+      this.ctx.resume();
+    }
+  }
+
+  playTone(freq, type = 'sine', duration = 0.15, vol = 0.1) {
+    if (this.muted) return;
+    this.init();
+    if (!this.ctx) return;
+    try {
+      const osc = this.ctx.createOscillator();
+      const gain = this.ctx.createGain();
+      osc.type = type;
+      osc.frequency.setValueAtTime(freq, this.ctx.currentTime);
+      gain.gain.setValueAtTime(vol, this.ctx.currentTime);
+      gain.gain.exponentialRampToValueAtTime(0.0001, this.ctx.currentTime + duration);
+      osc.connect(gain);
+      gain.connect(this.ctx.destination);
+      osc.start();
+      osc.stop(this.ctx.currentTime + duration);
+    } catch(e) {}
+  }
+
+  playStep() {
+    this.playTone(180, 'sine', 0.04, 0.03);
+  }
+
+  playGem() {
+    this.playTone(880, 'triangle', 0.12, 0.08);
+    setTimeout(() => this.playTone(1320, 'triangle', 0.18, 0.07), 60);
+  }
+
+  playStar() {
+    const notes = [523, 659, 783, 1046];
+    notes.forEach((n, i) => {
+      setTimeout(() => this.playTone(n, 'sine', 0.2, 0.1), i * 50);
+    });
+  }
+
+  playKey() {
+    this.playTone(700, 'square', 0.08, 0.05);
+    setTimeout(() => this.playTone(950, 'square', 0.15, 0.06), 70);
+  }
+
+  playDoorOpen() {
+    this.playTone(140, 'triangle', 0.4, 0.12);
+    setTimeout(() => this.playTone(220, 'sine', 0.3, 0.09), 100);
+  }
+
+  playHeart() {
+    this.playTone(440, 'sine', 0.15, 0.08);
+    setTimeout(() => this.playTone(660, 'sine', 0.25, 0.09), 90);
+  }
+
+  playTorch() {
+    this.playTone(400, 'triangle', 0.25, 0.08);
+  }
+
+  playTrapHit() {
+    this.playTone(90, 'sawtooth', 0.35, 0.15);
+  }
+
+  playSignal(p) {
+    if (p === 1) {
+      this.playTone(587, 'sine', 0.12, 0.08);
+      setTimeout(() => this.playTone(880, 'sine', 0.15, 0.07), 60);
+    } else {
+      this.playTone(659, 'triangle', 0.12, 0.08);
+      setTimeout(() => this.playTone(987, 'triangle', 0.15, 0.07), 60);
+    }
+  }
+
+  playWin() {
+    const notes = [440, 554, 659, 880, 1108];
+    notes.forEach((n, i) => {
+      setTimeout(() => this.playTone(n, 'triangle', 0.3, 0.1), i * 90);
+    });
+  }
+}
+
+const audio = new SoundEngine();
+
+/* ==========================================================================
+   GAME STATE & VARIABLES
+   ========================================================================== */
+let difficulty = 'medium'; // 'easy' | 'medium' | 'hard'
+let currentLevelIndex = 0;
+let lives = 3;
+let timerSeconds = 0;
+let timerInterval = null;
+let isPlaying = false;
+let isPaused = false;
+
+// Collectibles & Scoring
+let levelStarsCollected = 0;
+let totalStarsCollected = 0;
+let totalGemsScore = 0;
+let hasKey = false;
+let keyRequired = false;
+
+// Speed Boost
+let speedBoostTimer = 0; // ms
+const SPEED_BOOST_DURATION = 5000;
+
+// Torch Light
+let torchTimer = 0;
+
+// Communication signals
+let p1SignalTimer = 0;
+let p1SignalDirection = '➡️';
+let p2SignalTimer = 0;
+let p2SignalDirection = '⬆️';
+
+// Screen shake
+let screenShakeTimer = 0;
+
+// Invulnerability after trap hit
+let invulnerableTimer = 0;
+
+// Keys pressed state
+const keys = {
+  KeyA: false,
+  KeyD: false,
+  ArrowUp: false,
+  ArrowDown: false
+};
+
+// Character coordinates in maze pixel space
+let player = {
+  x: 0,
+  y: 0,
+  radius: 14,
+  baseSpeed: 140, // px per second
+  vx: 0,
+  vy: 0,
+  movingP1: false,
+  movingP2: false
+};
+
+// Maze data structures
+let gridCols = 11;
+let gridRows = 11;
+let cellSize = 44;
+let maze = []; // 2D array: 0 = wall, 1 = path, 2 = exit, 3 = locked door, 4 = secret door
+let exitPos = { r: 1, c: 1 };
+let lockedDoorPos = null;
+let secretDoorPos = null;
+
+// Collectibles & Traps in maze
+let collectibles = []; // { type: 'star'|'gem'|'key'|'heart'|'torch', r, c, x, y, taken }
+let traps = [];        // { type: 'spike', r, c, x, y, state: 'safe'|'warning'|'spike', timer: 0 }
+let movingWalls = [];  // { x, y, vx, vy, w, h, minX, maxX, minY, maxY }
+
+// Particles
+let particles = [];
+let ambientParticles = [];
+
+/* ==========================================================================
+   MAZE GENERATOR (Recursive Backtracker + Braiding)
+   ========================================================================== */
+function generateMaze(cols, rows, diff) {
+  // Ensure odd dimensions
+  if (cols % 2 === 0) cols++;
+  if (rows % 2 === 0) rows++;
+  gridCols = cols;
+  gridRows = rows;
+
+  // Initialize all solid walls (0)
+  maze = Array.from({ length: rows }, () => Array(cols).fill(0));
+
+  // Carve using randomized DFS
+  const stack = [];
+  const startR = 1;
+  const startC = 1;
+  maze[startR][startC] = 1;
+  stack.push({ r: startR, c: startC });
+
+  const directions = [
+    { dr: -2, dc: 0 },
+    { dr: 2, dc: 0 },
+    { dr: 0, dc: -2 },
+    { dr: 0, dc: 2 }
+  ];
+
+  while (stack.length > 0) {
+    const current = stack[stack.length - 1];
+    // Shuffle directions
+    const shuffledDirs = [...directions].sort(() => Math.random() - 0.5);
+    let carved = false;
+
+    for (const d of shuffledDirs) {
+      const nr = current.r + d.dr;
+      const nc = current.c + d.dc;
+
+      if (nr > 0 && nr < rows - 1 && nc > 0 && nc < cols - 1 && maze[nr][nc] === 0) {
+        // Carve wall between
+        maze[current.r + d.dr / 2][current.c + d.dc / 2] = 1;
+        // Carve target cell
+        maze[nr][nc] = 1;
+        stack.push({ r: nr, c: nc });
+        carved = true;
+        break;
+      }
+    }
+
+    if (!carved) {
+      stack.pop();
+    }
+  }
+
+  // Braiding: Remove 10-15% of internal walls to create loops and alternate paths
+  const loopFactor = diff === 'easy' ? 0.16 : (diff === 'medium' ? 0.10 : 0.07);
+  for (let r = 2; r < rows - 2; r++) {
+    for (let c = 2; c < cols - 2; c++) {
+      if (maze[r][c] === 0 && Math.random() < loopFactor) {
+        // Only remove if it connects two corridors
+        const horiz = (maze[r][c - 1] === 1 && maze[r][c + 1] === 1);
+        const vert = (maze[r - 1][c] === 1 && maze[r + 1][c] === 1);
+        if ((horiz && !vert) || (!horiz && vert)) {
+          maze[r][c] = 1;
+        }
+      }
+    }
+  }
+
+  // Find farthest point from (1, 1) using BFS for the Exit
+  const dist = Array.from({ length: rows }, () => Array(cols).fill(-1));
+  const queue = [{ r: 1, c: 1, d: 0 }];
+  dist[1][1] = 0;
+  let maxDist = 0;
+  let farthest = { r: 1, c: 1 };
+
+  while (queue.length > 0) {
+    const curr = queue.shift();
+    if (curr.d > maxDist) {
+      maxDist = curr.d;
+      farthest = { r: curr.r, c: curr.c };
+    }
+
+    const nbrs = [
+      { r: curr.r - 1, c: curr.c },
+      { r: curr.r + 1, c: curr.c },
+      { r: curr.r, c: curr.c - 1 },
+      { r: curr.r, c: curr.c + 1 }
+    ];
+
+    for (const n of nbrs) {
+      if (n.r >= 0 && n.r < rows && n.c >= 0 && n.c < cols && maze[n.r][n.c] === 1 && dist[n.r][n.c] === -1) {
+        dist[n.r][n.c] = curr.d + 1;
+        queue.push({ r: n.r, c: n.c, d: curr.d + 1 });
+      }
+    }
+  }
+
+  exitPos = farthest;
+  maze[exitPos.r][exitPos.c] = 2; // 2 = Exit Door
+
+  // Setup Locked Door & Key if level requires it
+  lockedDoorPos = null;
+  keyRequired = false;
+  hasKey = false;
+  const currentLevel = LEVELS[currentLevelIndex];
+
+  if (currentLevel.hasKey && diff !== 'easy') {
+    keyRequired = true;
+    // Find a cell on the path to exit around 60% distance
+    let targetDist = Math.floor(maxDist * 0.65);
+    for (let r = 1; r < rows - 1; r++) {
+      for (let c = 1; c < cols - 1; c++) {
+        if (maze[r][c] === 1 && dist[r][c] === targetDist) {
+          maze[r][c] = 3; // 3 = Locked Door
+          lockedDoorPos = { r, c };
+          break;
+        }
+      }
+      if (lockedDoorPos) break;
+    }
+  }
+
+  // Setup Secret Door (Cracked wall shortcut)
+  secretDoorPos = null;
+  for (let r = 3; r < rows - 3; r++) {
+    for (let c = 3; c < cols - 3; c++) {
+      if (maze[r][c] === 0) {
+        const canConnect = (maze[r][c-1] === 1 && maze[r][c+1] === 1) || (maze[r-1][c] === 1 && maze[r+1][c] === 1);
+        if (canConnect && Math.random() < 0.08) {
+          maze[r][c] = 4; // 4 = Secret Door
+          secretDoorPos = { r, c };
+          break;
+        }
+      }
+    }
+    if (secretDoorPos) break;
+  }
+}
+
+/* ==========================================================================
+   POPULATE ITEMS, TRAPS, & ENEMIES
+   ========================================================================== */
+function populateLevelEntities(diff) {
+  collectibles = [];
+  traps = [];
+  movingWalls = [];
+
+  const currentLevel = LEVELS[currentLevelIndex];
+  const allCorridors = [];
+
+  for (let r = 1; r < gridRows - 1; r++) {
+    for (let c = 1; c < gridCols - 1; c++) {
+      if (maze[r][c] === 1 && !(r === 1 && c === 1) && !(r === exitPos.r && c === exitPos.c)) {
+        allCorridors.push({ r, c, x: (c + 0.5) * cellSize, y: (r + 0.5) * cellSize });
+      }
+    }
+  }
+
+  // Shuffle corridor spots
+  allCorridors.sort(() => Math.random() - 0.5);
+
+  // 1. Key (if needed)
+  if (keyRequired) {
+    const keySpot = allCorridors.pop();
+    if (keySpot) {
+      collectibles.push({ type: 'key', r: keySpot.r, c: keySpot.c, x: keySpot.x, y: keySpot.y, taken: false });
+    }
+  }
+
+  // 2. Stars (3 stars per level)
+  for (let i = 0; i < 3; i++) {
+    const starSpot = allCorridors.pop();
+    if (starSpot) {
+      collectibles.push({ type: 'star', r: starSpot.r, c: starSpot.c, x: starSpot.x, y: starSpot.y, taken: false });
+    }
+  }
+
+  // 3. Torch (in dark zones)
+  if (currentLevel.hasDarkness || diff === 'hard') {
+    const torchSpot = allCorridors.pop();
+    if (torchSpot) {
+      collectibles.push({ type: 'torch', r: torchSpot.r, c: torchSpot.c, x: torchSpot.x, y: torchSpot.y, taken: false });
+    }
+  }
+
+  // 4. Heart Pickup (if lives < 3 or level >= 2)
+  if (Math.random() < 0.65) {
+    const heartSpot = allCorridors.pop();
+    if (heartSpot) {
+      collectibles.push({ type: 'heart', r: heartSpot.r, c: heartSpot.c, x: heartSpot.x, y: heartSpot.y, taken: false });
+    }
+  }
+
+  // 5. Gems (5 - 8 bonus gems)
+  const gemCount = 5 + Math.floor(Math.random() * 4);
+  for (let i = 0; i < gemCount; i++) {
+    const gemSpot = allCorridors.pop();
+    if (gemSpot) {
+      collectibles.push({ type: 'gem', r: gemSpot.r, c: gemSpot.c, x: gemSpot.x, y: gemSpot.y, taken: false });
+    }
+  }
+
+  // 6. Traps (Spikes) - skip in Easy
+  if (currentLevel.hasSpikes && diff !== 'easy') {
+    const spikeCount = diff === 'hard' ? 6 : 3;
+    for (let i = 0; i < spikeCount; i++) {
+      const trapSpot = allCorridors.pop();
+      if (trapSpot) {
+        traps.push({
+          type: 'spike',
+          r: trapSpot.r,
+          c: trapSpot.c,
+          x: trapSpot.x,
+          y: trapSpot.y,
+          state: 'safe', // 'safe', 'warning', 'spike'
+          timer: Math.random() * 3.5
+        });
+      }
+    }
+  }
+
+  // 7. Moving Walls (in larger levels)
+  if (currentLevel.movingWalls > 0 && diff !== 'easy') {
+    for (let i = 0; i < currentLevel.movingWalls; i++) {
+      const wallSpot = allCorridors.pop();
+      if (wallSpot) {
+        movingWalls.push({
+          x: wallSpot.x,
+          y: wallSpot.y,
+          radius: 16,
+          vx: Math.random() < 0.5 ? 45 : -45,
+          vy: 0,
+          minX: wallSpot.x - cellSize * 1.5,
+          maxX: wallSpot.x + cellSize * 1.5
+        });
+      }
+    }
+  }
+}
+
+/* ==========================================================================
+   START LEVEL & PROGRESSION
+   ========================================================================== */
+function startLevel(levelIndex, autoPlay = true) {
+  currentLevelIndex = levelIndex;
+  const lvl = LEVELS[currentLevelIndex];
+
+  // Adjust grid size by difficulty
+  let colModifier = difficulty === 'easy' ? -2 : (difficulty === 'hard' ? 2 : 0);
+  let cols = Math.max(9, lvl.baseCols + colModifier);
+  let rows = Math.max(9, lvl.baseRows + colModifier);
+
+  // Resize canvas and dynamically adjust cellSize to fit view
+  resizeCanvas();
+  const dpr = window.devicePixelRatio || 1;
+  const viewW = (canvas.width > 0 ? canvas.width / dpr : 800) || 800;
+  const viewH = (canvas.height > 0 ? canvas.height / dpr : 600) || 600;
+  cellSize = Math.min(54, Math.floor(Math.min((viewW - 50) / cols, (viewH - 50) / rows)));
+  if (cellSize < 36) cellSize = 36;
+  player.radius = Math.floor(cellSize * 0.33);
+
+  generateMaze(cols, rows, difficulty);
+  populateLevelEntities(difficulty);
+
+  // Position player at (1, 1) cell center
+  player.x = 1.5 * cellSize;
+  player.y = 1.5 * cellSize;
+  player.vx = 0;
+  player.vy = 0;
+  speedBoostTimer = 0;
+  torchTimer = 0;
+  invulnerableTimer = 0;
+  levelStarsCollected = 0;
+
+  // Update HUD
+  document.getElementById('levelIcon').textContent = lvl.icon;
+  document.getElementById('levelName').textContent = `Level ${lvl.num}: ${lvl.title}`;
+  document.getElementById('ambientBackdrop').style.background = lvl.ambientGlow;
+  updateHudDisplay();
+
+  // Reset speed banner
+  document.getElementById('speedBanner').style.display = 'none';
+
+  // Spawn theme ambient particles
+  initAmbientParticles(lvl.bgParticles);
+
+  isPlaying = autoPlay;
+  isPaused = false;
+}
+
+function updateHudDisplay() {
+  // Lives
+  for (let i = 1; i <= 3; i++) {
+    const heart = document.getElementById(`heart${i}`);
+    if (i <= lives) {
+      heart.classList.remove('lost');
+    } else {
+      heart.classList.add('lost');
+    }
+  }
+
+  // Key
+  const keyPill = document.getElementById('keyPill');
+  const keyStatus = document.getElementById('keyStatus');
+  if (keyRequired) {
+    keyPill.style.display = 'flex';
+    keyStatus.textContent = hasKey ? '1/1' : '0/1';
+    if (hasKey) keyPill.classList.add('active-key');
+    else keyPill.classList.remove('active-key');
+  } else {
+    keyPill.style.display = 'none';
+  }
+
+  // Stars & Gems
+  document.getElementById('starsCount').textContent = `${levelStarsCollected}/3`;
+  document.getElementById('gemsCount').textContent = totalGemsScore.toLocaleString();
+}
+
+/* ==========================================================================
+   TIMER & STORAGE
+   ========================================================================== */
+function formatTime(totalSeconds) {
+  const mins = Math.floor(totalSeconds / 60);
+  const secs = Math.floor(totalSeconds % 60);
+  const ms = Math.floor((totalSeconds * 10) % 10);
+  return `${String(mins).padStart(2, '0')}:${String(secs).padStart(2, '0')}.${ms}`;
+}
+
+function startTimer() {
+  if (timerInterval) clearInterval(timerInterval);
+  timerSeconds = 0;
+  timerInterval = setInterval(() => {
+    if (isPlaying && !isPaused) {
+      timerSeconds += 0.1;
+      document.getElementById('timerDisplay').textContent = formatTime(timerSeconds);
+    }
+  }, 100);
+}
+
+function loadBestTime() {
+  const saved = localStorage.getItem(`dual_maze_best_${difficulty}`);
+  const val = document.getElementById('bestTimeVal');
+  const disp = document.getElementById('bestTimeDisplay');
+  disp.querySelector('.stat-lbl').textContent = `Best ${difficulty.toUpperCase()} Time`;
+  if (saved) {
+    val.textContent = formatTime(parseFloat(saved));
+  } else {
+    val.textContent = '--:--.-';
+  }
+}
+
+function saveBestTime(time) {
+  const key = `dual_maze_best_${difficulty}`;
+  const existing = localStorage.getItem(key);
+  if (!existing || time < parseFloat(existing)) {
+    localStorage.setItem(key, time.toFixed(1));
+  }
+}
+
+/* ==========================================================================
+   COLLISION DETECTION & MOVEMENT
+   ========================================================================== */
+function canMoveTo(x, y, radius) {
+  if (!maze || maze.length === 0 || !maze[0]) return false;
+  // Sample bounding box circle points against walls
+  const samplePoints = [
+    { x: x - radius, y },
+    { x: x + radius, y },
+    { x, y: y - radius },
+    { x, y: y + radius },
+    { x: x - radius * 0.7, y: y - radius * 0.7 },
+    { x: x + radius * 0.7, y: y - radius * 0.7 },
+    { x: x - radius * 0.7, y: y + radius * 0.7 },
+    { x: x + radius * 0.7, y: y + radius * 0.7 }
+  ];
+
+  for (const pt of samplePoints) {
+    const c = Math.floor(pt.x / cellSize);
+    const r = Math.floor(pt.y / cellSize);
+
+    if (r < 0 || r >= gridRows || c < 0 || c >= gridCols || !maze[r]) return false;
+
+    const cellType = maze[r][c];
+
+    // Solid Wall
+    if (cellType === 0) return false;
+
+    // Locked Door (unless player has key)
+    if (cellType === 3) {
+      if (hasKey) {
+        // Unlock door!
+        maze[r][c] = 1;
+        hasKey = false;
+        audio.playDoorOpen();
+        spawnParticles(pt.x, pt.y, 'gold', 24);
+        updateHudDisplay();
+      } else {
+        return false;
+      }
+    }
+
+    // Secret Door (Cracked wall) - opens when player brushes against it!
+    if (cellType === 4) {
+      maze[r][c] = 1;
+      audio.playDoorOpen();
+      spawnParticles(pt.x, pt.y, 'amber', 30);
+      screenShakeTimer = 0.2;
+    }
+  }
+
+  return true;
+}
+
+/* ==========================================================================
+   INPUT HANDLING (STRICT ROLE ASSIGNMENT)
+   ========================================================================== */
+window.addEventListener('keydown', (e) => {
+  audio.init();
+
+  // Player 1 (Blue): Horizontal A/D only
+  if (e.code === 'KeyA') {
+    keys.KeyA = true;
+    document.getElementById('keyA').classList.add('p1-active');
+  }
+  if (e.code === 'KeyD') {
+    keys.KeyD = true;
+    document.getElementById('keyD').classList.add('p1-active');
+  }
+
+  // Player 2 (Red): Vertical Arrow Up/Down only
+  if (e.code === 'ArrowUp') {
+    e.preventDefault();
+    keys.ArrowUp = true;
+    document.getElementById('keyUp').classList.add('p2-active');
+  }
+  if (e.code === 'ArrowDown') {
+    e.preventDefault();
+    keys.ArrowDown = true;
+    document.getElementById('keyDown').classList.add('p2-active');
+  }
+
+  // Communication signals
+  if (e.code === 'KeyQ') {
+    triggerP1Signal();
+  }
+  if (e.code === 'KeyL') {
+    triggerP2Signal();
+  }
+
+  // Audio mute toggle
+  if (e.code === 'KeyM') {
+    toggleAudio();
+  }
+});
+
+window.addEventListener('keyup', (e) => {
+  if (e.code === 'KeyA') {
+    keys.KeyA = false;
+    document.getElementById('keyA').classList.remove('p1-active');
+  }
+  if (e.code === 'KeyD') {
+    keys.KeyD = false;
+    document.getElementById('keyD').classList.remove('p1-active');
+  }
+  if (e.code === 'ArrowUp') {
+    keys.ArrowUp = false;
+    document.getElementById('keyUp').classList.remove('p2-active');
+  }
+  if (e.code === 'ArrowDown') {
+    keys.ArrowDown = false;
+    document.getElementById('keyDown').classList.remove('p2-active');
+  }
+});
+
+function triggerP1Signal() {
+  p1SignalTimer = 2.2;
+  // Alternate or point towards partner
+  p1SignalDirection = keys.KeyD ? '➡️' : (keys.KeyA ? '⬅️' : '💙');
+  audio.playSignal(1);
+  const btn = document.getElementById('sigQBtn');
+  btn.classList.add('active');
+  setTimeout(() => btn.classList.remove('active'), 250);
+}
+
+function triggerP2Signal() {
+  p2SignalTimer = 2.2;
+  p2SignalDirection = keys.ArrowDown ? '⬇️' : (keys.ArrowUp ? '⬆️' : '❤️');
+  audio.playSignal(2);
+  const btn = document.getElementById('sigLBtn');
+  btn.classList.add('active');
+  setTimeout(() => btn.classList.remove('active'), 250);
+}
+
+document.getElementById('sigQBtn').addEventListener('click', triggerP1Signal);
+document.getElementById('sigLBtn').addEventListener('click', triggerP2Signal);
+
+/* ==========================================================================
+   PARTICLE SYSTEMS
+   ========================================================================== */
+function spawnParticles(x, y, colorType, count = 15) {
+  for (let i = 0; i < count; i++) {
+    const angle = Math.random() * Math.PI * 2;
+    const speed = 20 + Math.random() * 90;
+    particles.push({
+      x,
+      y,
+      vx: Math.cos(angle) * speed,
+      vy: Math.sin(angle) * speed,
+      size: 2.5 + Math.random() * 3.5,
+      colorType,
+      alpha: 1,
+      life: 0.5 + Math.random() * 0.5
+    });
+  }
+}
+
+function initAmbientParticles(themeType) {
+  ambientParticles = [];
+  for (let i = 0; i < 35; i++) {
+    ambientParticles.push({
+      x: Math.random() * (gridCols * cellSize),
+      y: Math.random() * (gridRows * cellSize),
+      vx: (Math.random() - 0.5) * 15,
+      vy: -10 - Math.random() * 20,
+      size: 1.5 + Math.random() * 3,
+      alpha: 0.2 + Math.random() * 0.5,
+      themeType
+    });
+  }
+}
+
+/* ==========================================================================
+   MAIN GAME LOOP (PHYSICS & RENDERING)
+   ========================================================================== */
+const canvas = document.getElementById('gameCanvas');
+const ctx = canvas.getContext('2d');
+let lastTime = performance.now();
+
+function resizeCanvas() {
+  const container = document.getElementById('viewportContainer');
+  if (!container) return;
+  const dpr = window.devicePixelRatio || 1;
+  const w = container.clientWidth || (container.getBoundingClientRect && container.getBoundingClientRect().width) || 800;
+  const h = container.clientHeight || (container.getBoundingClientRect && container.getBoundingClientRect().height) || 600;
+  if (w > 0 && h > 0) {
+    canvas.width = Math.floor(w * dpr);
+    canvas.height = Math.floor(h * dpr);
+  }
+}
+window.addEventListener('resize', resizeCanvas);
+
+function gameLoop(now) {
+  const dt = Math.min((now - lastTime) / 1000, 0.1);
+  lastTime = now;
+
+  if (isPlaying && !isPaused) {
+    updateGame(dt);
+  }
+
+  renderGame();
+  requestAnimationFrame(gameLoop);
+}
+
+function updateGame(dt) {
+  // Speed calculation with Star boost
+  let currentSpeed = player.baseSpeed;
+  if (speedBoostTimer > 0) {
+    speedBoostTimer -= dt * 1000;
+    currentSpeed *= 1.6;
+    if (speedBoostTimer <= 0) {
+      document.getElementById('speedBanner').style.display = 'none';
+    }
+  }
+
+  if (torchTimer > 0) {
+    torchTimer -= dt * 1000;
+  }
+
+  // Calculate separate player velocities
+  let vx = 0;
+  let vy = 0;
+
+  // Player 1 controls horizontal ONLY
+  if (keys.KeyA && !keys.KeyD) vx = -currentSpeed;
+  else if (keys.KeyD && !keys.KeyA) vx = currentSpeed;
+
+  // Player 2 controls vertical ONLY
+  if (keys.ArrowUp && !keys.ArrowDown) vy = -currentSpeed;
+  else if (keys.ArrowDown && !keys.ArrowUp) vy = currentSpeed;
+
+  player.movingP1 = (vx !== 0);
+  player.movingP2 = (vy !== 0);
+
+  // Update sidebar active highlights
+  const p1Side = document.getElementById('p1Sidebar');
+  const p2Side = document.getElementById('p2Sidebar');
+  if (player.movingP1) p1Side.classList.add('active-moving');
+  else p1Side.classList.remove('active-moving');
+  if (player.movingP2) p2Side.classList.add('active-moving');
+  else p2Side.classList.remove('active-moving');
+
+  // Independent axis movement & collision for buttery smooth slide along walls
+  const nextX = player.x + vx * dt;
+  if (canMoveTo(nextX, player.y, player.radius)) {
+    player.x = nextX;
+  }
+
+  const nextY = player.y + vy * dt;
+  if (canMoveTo(player.x, nextY, player.radius)) {
+    player.y = nextY;
+  }
+
+  // Check Exit Portal
+  const pCol = Math.floor(player.x / cellSize);
+  const pRow = Math.floor(player.y / cellSize);
+  if (pRow === exitPos.r && pCol === exitPos.c) {
+    triggerLevelWin();
+    return;
+  }
+
+  // Check Collectibles
+  for (const c of collectibles) {
+    if (!c.taken) {
+      const dist = Math.hypot(player.x - c.x, player.y - c.y);
+      if (dist < player.radius + 14) {
+        c.taken = true;
+        handleCollect(c);
+      }
+    }
+  }
+
+  // Check Spike Traps
+  for (const t of traps) {
+    t.timer += dt;
+    const cycle = t.timer % 3.6;
+    if (cycle < 1.8) {
+      t.state = 'safe';
+    } else if (cycle < 2.4) {
+      t.state = 'warning';
+    } else {
+      t.state = 'spike';
+    }
+
+    if (t.state === 'spike' && invulnerableTimer <= 0) {
+      const dist = Math.hypot(player.x - t.x, player.y - t.y);
+      if (dist < player.radius + 10) {
+        takeDamage();
+      }
+    }
+  }
+
+  // Update Moving Walls
+  for (const mw of movingWalls) {
+    mw.x += mw.vx * dt;
+    if (mw.x < mw.minX) {
+      mw.x = mw.minX;
+      mw.vx = Math.abs(mw.vx);
+    } else if (mw.x > mw.maxX) {
+      mw.x = mw.maxX;
+      mw.vx = -Math.abs(mw.vx);
+    }
+
+    if (invulnerableTimer <= 0) {
+      const dist = Math.hypot(player.x - mw.x, player.y - mw.y);
+      if (dist < player.radius + mw.radius) {
+        takeDamage();
+      }
+    }
+  }
+
+  // Timers
+  if (screenShakeTimer > 0) screenShakeTimer -= dt;
+  if (invulnerableTimer > 0) invulnerableTimer -= dt;
+  if (p1SignalTimer > 0) p1SignalTimer -= dt;
+  if (p2SignalTimer > 0) p2SignalTimer -= dt;
+
+  // Particle updates
+  for (let i = particles.length - 1; i >= 0; i--) {
+    const p = particles[i];
+    p.x += p.vx * dt;
+    p.y += p.vy * dt;
+    p.alpha -= dt / p.life;
+    if (p.alpha <= 0) particles.splice(i, 1);
+  }
+
+  // Ambient particles
+  for (const ap of ambientParticles) {
+    ap.x += ap.vx * dt;
+    ap.y += ap.vy * dt;
+    if (ap.y < 0) ap.y = gridRows * cellSize;
+    if (ap.x < 0) ap.x = gridCols * cellSize;
+    if (ap.x > gridCols * cellSize) ap.x = 0;
+  }
+}
+
+function handleCollect(item) {
+  if (item.type === 'key') {
+    hasKey = true;
+    audio.playKey();
+    spawnParticles(item.x, item.y, 'gold', 22);
+    updateHudDisplay();
+  } else if (item.type === 'star') {
+    levelStarsCollected++;
+    totalStarsCollected++;
+    totalGemsScore += 300;
+    speedBoostTimer = SPEED_BOOST_DURATION;
+    audio.playStar();
+    spawnParticles(item.x, item.y, 'gold', 30);
+    document.getElementById('speedBanner').style.display = 'flex';
+    updateHudDisplay();
+  } else if (item.type === 'gem') {
+    totalGemsScore += 100;
+    audio.playGem();
+    spawnParticles(item.x, item.y, 'emerald', 14);
+    updateHudDisplay();
+  } else if (item.type === 'heart') {
+    if (lives < 3) lives++;
+    audio.playHeart();
+    spawnParticles(item.x, item.y, 'rose', 22);
+    updateHudDisplay();
+  } else if (item.type === 'torch') {
+    torchTimer = 12000;
+    audio.playTorch();
+    spawnParticles(item.x, item.y, 'amber', 25);
+    updateHudDisplay();
+  }
+}
+
+function takeDamage() {
+  lives--;
+  invulnerableTimer = 1.8;
+  screenShakeTimer = 0.35;
+  audio.playTrapHit();
+  spawnParticles(player.x, player.y, 'rose', 25);
+  updateHudDisplay();
+
+  const container = document.getElementById('viewportContainer');
+  container.classList.remove('screen-shake');
+  void container.offsetWidth; // trigger reflow
+  container.classList.add('screen-shake');
+  setTimeout(() => container.classList.remove('screen-shake'), 350);
+
+  if (lives <= 0) {
+    triggerGameOver();
+  }
+}
+
+/* ==========================================================================
+   RENDERER (CAMERA, MAZE, LIGHTING, CO-OP CHARACTER)
+   ========================================================================== */
+function renderGame() {
+  const container = document.getElementById('viewportContainer');
+  const dpr = window.devicePixelRatio || 1;
+  const w = container ? (container.clientWidth || 800) : 800;
+  const h = container ? (container.clientHeight || 600) : 600;
+
+  if (canvas.width === 0 || canvas.height === 0 || Math.abs(canvas.width - w * dpr) > 4) {
+    canvas.width = Math.floor(w * dpr);
+    canvas.height = Math.floor(h * dpr);
+  }
+
+  const viewW = canvas.width / dpr || 800;
+  const viewH = canvas.height / dpr || 600;
+
+  ctx.save();
+  ctx.scale(dpr, dpr);
+
+  // Clear Canvas
+  ctx.fillStyle = '#05070c';
+  ctx.fillRect(0, 0, viewW, viewH);
+
+  if (!maze || maze.length === 0 || !maze[0]) {
+    ctx.restore();
+    return;
+  }
+
+  // Camera Follow Clamped
+  const mazePixelW = gridCols * cellSize;
+  const mazePixelH = gridRows * cellSize;
+  let camX = viewW / 2 - player.x;
+  let camY = viewH / 2 - player.y;
+
+  // Center maze if it fits viewport, otherwise clamp to maze edges
+  if (mazePixelW <= viewW - 40) {
+    camX = (viewW - mazePixelW) / 2;
+  } else {
+    camX = Math.min(20, Math.max(viewW - mazePixelW - 20, camX));
+  }
+
+  if (mazePixelH <= viewH - 40) {
+    camY = (viewH - mazePixelH) / 2;
+  } else {
+    camY = Math.min(20, Math.max(viewH - mazePixelH - 20, camY));
+  }
+
+  if (screenShakeTimer > 0) {
+    camX += (Math.random() - 0.5) * 8;
+    camY += (Math.random() - 0.5) * 8;
+  }
+
+  ctx.save();
+  ctx.translate(camX, camY);
+
+  const lvl = LEVELS[currentLevelIndex] || LEVELS[0];
+
+  // 0. Guidance beacon in Easy mode
+  if (difficulty === 'easy' && isPlaying && exitPos) {
+    const ex = exitPos.c * cellSize + cellSize / 2;
+    const ey = exitPos.r * cellSize + cellSize / 2;
+    ctx.save();
+    ctx.strokeStyle = 'rgba(56, 189, 248, 0.45)';
+    ctx.lineWidth = 2.5;
+    ctx.setLineDash([6, 8]);
+    ctx.beginPath();
+    ctx.moveTo(player.x, player.y);
+    ctx.lineTo(ex, ey);
+    ctx.stroke();
+    ctx.restore();
+  }
+
+  // 1. Draw Maze Floors
+  ctx.fillStyle = lvl.floorColor;
+  for (let r = 0; r < gridRows && r < maze.length; r++) {
+    if (!maze[r]) continue;
+    for (let c = 0; c < gridCols && c < maze[r].length; c++) {
+      if (maze[r][c] !== 0) {
+        ctx.fillRect(c * cellSize, r * cellSize, cellSize, cellSize);
+
+        // Tile bevel/grid lines
+        ctx.strokeStyle = 'rgba(255, 255, 255, 0.12)';
+        ctx.lineWidth = 1;
+        ctx.strokeRect(c * cellSize + 1, r * cellSize + 1, cellSize - 2, cellSize - 2);
+      }
+    }
+  }
+
+  // 2. Draw Traps (Spikes)
+  for (const t of traps) {
+    const tx = t.c * cellSize;
+    const ty = t.r * cellSize;
+
+    // Metal floor plate
+    ctx.fillStyle = '#222';
+    ctx.fillRect(tx + 4, ty + 4, cellSize - 8, cellSize - 8);
+
+    if (t.state === 'warning') {
+      ctx.fillStyle = 'rgba(239, 68, 68, 0.4)';
+      ctx.fillRect(tx + 4, ty + 4, cellSize - 8, cellSize - 8);
+      ctx.strokeStyle = '#ef4444';
+      ctx.lineWidth = 2;
+      ctx.strokeRect(tx + 4, ty + 4, cellSize - 8, cellSize - 8);
+    } else if (t.state === 'spike') {
+      ctx.fillStyle = '#e2e8f0';
+      // 4 Sharp spike triangles
+      const spikePoints = [
+        [tx + 12, ty + 12],
+        [tx + cellSize - 12, ty + 12],
+        [tx + 12, ty + cellSize - 12],
+        [tx + cellSize - 12, ty + cellSize - 12]
+      ];
+      for (const [sx, sy] of spikePoints) {
+        ctx.beginPath();
+        ctx.moveTo(sx, sy - 8);
+        ctx.lineTo(sx - 5, sy + 5);
+        ctx.lineTo(sx + 5, sy + 5);
+        ctx.closePath();
+        ctx.fill();
+      }
+    }
+  }
+
+  // 3. Draw Exit Portal (2)
+  if (exitPos) {
+    const ex = exitPos.c * cellSize + cellSize / 2;
+    const ey = exitPos.r * cellSize + cellSize / 2;
+    ctx.save();
+    ctx.translate(ex, ey);
+    const portalPulse = 1 + Math.sin(performance.now() * 0.005) * 0.15;
+    const grad = ctx.createRadialGradient(0, 0, 4, 0, 0, 20 * portalPulse);
+    grad.addColorStop(0, '#fff');
+    grad.addColorStop(0.4, '#38bdf8');
+    grad.addColorStop(1, 'rgba(56, 189, 248, 0)');
+    ctx.fillStyle = grad;
+    ctx.beginPath();
+    ctx.arc(0, 0, 22 * portalPulse, 0, Math.PI * 2);
+    ctx.fill();
+    ctx.font = '22px sans-serif';
+    ctx.textAlign = 'center';
+    ctx.textBaseline = 'middle';
+    ctx.fillText('🚪', 0, 0);
+    ctx.restore();
+  }
+
+  // 4. Draw Maze Walls
+  for (let r = 0; r < gridRows && r < maze.length; r++) {
+    if (!maze[r]) continue;
+    for (let c = 0; c < gridCols && c < maze[r].length; c++) {
+      const type = maze[r][c];
+      const wx = c * cellSize;
+      const wy = r * cellSize;
+
+      if (type === 0) {
+        // Solid 3D wall block
+        ctx.fillStyle = lvl.wallColor;
+        ctx.fillRect(wx, wy, cellSize, cellSize);
+
+        // 3D Top Cap
+        ctx.fillStyle = lvl.wallTopColor;
+        ctx.fillRect(wx + 2, wy + 2, cellSize - 4, cellSize - 8);
+
+        // Subtle brick highlight
+        ctx.strokeStyle = 'rgba(255, 255, 255, 0.08)';
+        ctx.lineWidth = 1;
+        ctx.strokeRect(wx + 2, wy + 2, cellSize - 4, cellSize - 8);
+      } else if (type === 3) {
+        // Locked Gate
+        ctx.fillStyle = '#451a03';
+        ctx.fillRect(wx + 4, wy + 4, cellSize - 8, cellSize - 8);
+        ctx.strokeStyle = '#d97706';
+        ctx.lineWidth = 3;
+        ctx.strokeRect(wx + 4, wy + 4, cellSize - 8, cellSize - 8);
+        ctx.font = '18px sans-serif';
+        ctx.textAlign = 'center';
+        ctx.textBaseline = 'middle';
+        ctx.fillText('🔒', wx + cellSize / 2, wy + cellSize / 2);
+      } else if (type === 4) {
+        // Secret Door (Cracked wall segment with subtle ivy / cracks)
+        ctx.fillStyle = lvl.wallColor;
+        ctx.fillRect(wx, wy, cellSize, cellSize);
+        ctx.strokeStyle = 'rgba(251, 191, 36, 0.5)';
+        ctx.lineWidth = 2;
+        ctx.beginPath();
+        ctx.moveTo(wx + 6, wy + 6);
+        ctx.lineTo(wx + cellSize / 2, wy + cellSize / 2);
+        ctx.lineTo(wx + cellSize - 6, wy + cellSize - 6);
+        ctx.stroke();
+      }
+    }
+  }
+
+  // 5. Draw Collectibles
+  for (const c of collectibles) {
+    if (!c.taken) {
+      ctx.save();
+      const bounce = Math.sin(performance.now() * 0.005 + c.x) * 4;
+      ctx.translate(c.x, c.y + bounce);
+      ctx.textAlign = 'center';
+      ctx.textBaseline = 'middle';
+
+      if (c.type === 'key') {
+        ctx.font = '24px sans-serif';
+        ctx.fillText('🔑', 0, 0);
+      } else if (c.type === 'star') {
+        ctx.font = '24px sans-serif';
+        ctx.fillText('⭐', 0, 0);
+      } else if (c.type === 'gem') {
+        ctx.font = '22px sans-serif';
+        ctx.fillText('💎', 0, 0);
+      } else if (c.type === 'heart') {
+        ctx.font = '22px sans-serif';
+        ctx.fillText('💖', 0, 0);
+      } else if (c.type === 'torch') {
+        ctx.font = '22px sans-serif';
+        ctx.fillText('🕯️', 0, 0);
+      }
+      ctx.restore();
+    }
+  }
+
+  // 6. Draw Moving Wall Crushers
+  for (const mw of movingWalls) {
+    ctx.save();
+    ctx.translate(mw.x, mw.y);
+    ctx.fillStyle = '#b91c1c';
+    ctx.beginPath();
+    ctx.arc(0, 0, mw.radius, 0, Math.PI * 2);
+    ctx.fill();
+    ctx.strokeStyle = '#f87171';
+    ctx.lineWidth = 3;
+    ctx.stroke();
+    ctx.font = '16px sans-serif';
+    ctx.textAlign = 'center';
+    ctx.textBaseline = 'middle';
+    ctx.fillText('⚙️', 0, 0);
+    ctx.restore();
+  }
+
+  // 7. Ambient Theme Particles
+  for (const ap of ambientParticles) {
+    ctx.fillStyle = ap.themeType === 'bubbles' ? 'rgba(56, 189, 248, ' + ap.alpha + ')' :
+                    ap.themeType === 'embers' ? 'rgba(251, 146, 60, ' + ap.alpha + ')' :
+                    ap.themeType === 'cinders' ? 'rgba(239, 68, 68, ' + ap.alpha + ')' :
+                    ap.themeType === 'stardust' ? 'rgba(192, 132, 252, ' + ap.alpha + ')' :
+                    'rgba(52, 211, 153, ' + ap.alpha + ')';
+    ctx.beginPath();
+    ctx.arc(ap.x, ap.y, ap.size, 0, Math.PI * 2);
+    ctx.fill();
+  }
+
+  // 8. Dynamic Particles
+  for (const p of particles) {
+    ctx.fillStyle = p.colorType === 'gold' ? 'rgba(251, 191, 36, ' + p.alpha + ')' :
+                    p.colorType === 'emerald' ? 'rgba(52, 211, 153, ' + p.alpha + ')' :
+                    p.colorType === 'rose' ? 'rgba(244, 63, 94, ' + p.alpha + ')' :
+                    'rgba(255, 255, 255, ' + p.alpha + ')';
+    ctx.beginPath();
+    ctx.arc(p.x, p.y, p.size, 0, Math.PI * 2);
+    ctx.fill();
+  }
+
+  // 9. Draw Shared Duo Character
+  ctx.save();
+  ctx.translate(player.x, player.y);
+
+  // Invulnerability blink
+  if (invulnerableTimer > 0 && Math.floor(performance.now() / 100) % 2 === 0) {
+    ctx.globalAlpha = 0.35;
+  }
+
+  // Speed boost fiery trail aura
+  if (speedBoostTimer > 0) {
+    ctx.fillStyle = 'rgba(251, 191, 36, 0.35)';
+    ctx.beginPath();
+    ctx.arc(0, 0, player.radius + 8 + Math.sin(performance.now() * 0.02) * 3, 0, Math.PI * 2);
+    ctx.fill();
+  }
+
+  // Base circular shadow
+  ctx.fillStyle = 'rgba(0, 0, 0, 0.45)';
+  ctx.beginPath();
+  ctx.ellipse(0, player.radius + 2, player.radius * 0.9, player.radius * 0.45, 0, 0, Math.PI * 2);
+  ctx.fill();
+
+  // Dual body: Left half = Blue (P1), Right half = Red (P2)
+  // Left Blue half
+  ctx.fillStyle = varColor('--p1-blue', '#38bdf8');
+  ctx.beginPath();
+  ctx.arc(0, 0, player.radius, Math.PI * 0.5, Math.PI * 1.5);
+  ctx.closePath();
+  ctx.fill();
+
+  // Right Red half
+  ctx.fillStyle = varColor('--p2-red', '#f43f5e');
+  ctx.beginPath();
+  ctx.arc(0, 0, player.radius, Math.PI * 1.5, Math.PI * 0.5);
+  ctx.closePath();
+  ctx.fill();
+
+  // Outer border
+  ctx.strokeStyle = '#ffffff';
+  ctx.lineWidth = 2.5;
+  ctx.beginPath();
+  ctx.arc(0, 0, player.radius, 0, Math.PI * 2);
+  ctx.stroke();
+
+  // Center division line
+  ctx.beginPath();
+  ctx.moveTo(0, -player.radius);
+  ctx.lineTo(0, player.radius);
+  ctx.stroke();
+
+  // Expressive Dual Eyes
+  // P1 Eye (Left)
+  ctx.fillStyle = '#0b1329';
+  ctx.beginPath();
+  ctx.arc(-5, -2, 3, 0, Math.PI * 2);
+  ctx.fill();
+  ctx.fillStyle = '#fff';
+  ctx.beginPath();
+  ctx.arc(-6, -3, 1.2, 0, Math.PI * 2);
+  ctx.fill();
+
+  // P2 Eye (Right)
+  ctx.fillStyle = '#26040c';
+  ctx.beginPath();
+  ctx.arc(5, -2, 3, 0, Math.PI * 2);
+  ctx.fill();
+  ctx.fillStyle = '#fff';
+  ctx.beginPath();
+  ctx.arc(4, -3, 1.2, 0, Math.PI * 2);
+  // Directional guide arrows showing which player controls which direction
+  ctx.font = '11px sans-serif';
+  ctx.textAlign = 'center';
+  ctx.textBaseline = 'middle';
+
+  // P1 Horizontal Arrows (Blue)
+  ctx.fillStyle = keys.KeyA ? '#38bdf8' : 'rgba(56, 189, 248, 0.45)';
+  ctx.fillText('◀', -player.radius - 8, 0);
+
+  ctx.fillStyle = keys.KeyD ? '#38bdf8' : 'rgba(56, 189, 248, 0.45)';
+  ctx.fillText('▶', player.radius + 8, 0);
+
+  // P2 Vertical Arrows (Red)
+  ctx.fillStyle = keys.ArrowUp ? '#f43f5e' : 'rgba(244, 63, 94, 0.45)';
+  ctx.fillText('▲', 0, -player.radius - 8);
+
+  ctx.fillStyle = keys.ArrowDown ? '#f43f5e' : 'rgba(244, 63, 94, 0.45)';
+  ctx.fillText('▼', 0, player.radius + 8);
+  if (p1SignalTimer > 0) {
+    ctx.save();
+    ctx.translate(-14, -player.radius - 22);
+    ctx.fillStyle = '#fff';
+    ctx.strokeStyle = varColor('--p1-blue', '#38bdf8');
+    ctx.lineWidth = 2;
+    drawBubble(ctx, 0, 0, 32, 22, 6);
+    ctx.font = '15px sans-serif';
+    ctx.textAlign = 'center';
+    ctx.textBaseline = 'middle';
+    ctx.fillText(p1SignalDirection, 16, 11);
+    ctx.restore();
+  }
+
+  if (p2SignalTimer > 0) {
+    ctx.save();
+    ctx.translate(14, -player.radius - 22);
+    ctx.fillStyle = '#fff';
+    ctx.strokeStyle = varColor('--p2-red', '#f43f5e');
+    ctx.lineWidth = 2;
+    drawBubble(ctx, -16, 0, 32, 22, 6);
+    ctx.font = '15px sans-serif';
+    ctx.textAlign = 'center';
+    ctx.textBaseline = 'middle';
+    ctx.fillText(p2SignalDirection, 0, 11);
+    ctx.restore();
+  }
+
+  ctx.restore(); // Character restore
+
+  // 10. Fog of War / Torch Light in Dark Zones
+  if ((lvl.hasDarkness || difficulty === 'hard') && isPlaying) {
+    const lightRadius = torchTimer > 0 ? 210 : 110;
+    const flicker = Math.sin(performance.now() * 0.01) * 4;
+
+    const darkGrad = ctx.createRadialGradient(player.x, player.y, 30, player.x, player.y, lightRadius + flicker);
+    darkGrad.addColorStop(0, 'rgba(0,0,0,0)');
+    darkGrad.addColorStop(0.75, 'rgba(5, 7, 12, 0.5)');
+    darkGrad.addColorStop(1, 'rgba(5, 7, 12, 0.98)');
+
+    ctx.fillStyle = darkGrad;
+    ctx.fillRect(player.x - 600, player.y - 600, 1200, 1200);
+  }
+
+  ctx.restore(); // World transform restore
+  ctx.restore(); // Viewport scale restore
+}
+
+function varColor(name, fallback) {
+  return fallback;
+}
+
+function drawBubble(ctx, x, y, w, h, r) {
+  ctx.beginPath();
+  if (ctx.roundRect) {
+    ctx.roundRect(x, y, w, h, r);
+  } else {
+    ctx.rect(x, y, w, h);
+  }
+  ctx.fill();
+  ctx.stroke();
+}
+
+/* ==========================================================================
+   WIN & GAME OVER FLOWS
+   ========================================================================== */
+function triggerLevelWin() {
+  isPlaying = false;
+  audio.playWin();
+
+  // Celebration particle vortex into exit portal
+  const ex = exitPos.c * cellSize + cellSize / 2;
+  const ey = exitPos.r * cellSize + cellSize / 2;
+  spawnParticles(ex, ey, 'gold', 45);
+  spawnParticles(player.x, player.y, 'emerald', 30);
+  screenShakeTimer = 0.25;
+
+  const lvl = LEVELS[currentLevelIndex];
+  document.getElementById('completeTitle').textContent = `Level ${lvl.num} Cleared! 🎉`;
+  document.getElementById('completeSub').textContent = `Magnificent teamwork navigating the ${lvl.title}!`;
+  document.getElementById('levelTimeVal').textContent = formatTime(timerSeconds);
+  document.getElementById('levelStarsVal').textContent = `⭐ ${levelStarsCollected}/3`;
+  document.getElementById('levelGemsVal').textContent = `💎 ${totalGemsScore}`;
+
+  setTimeout(() => {
+    if (currentLevelIndex >= LEVELS.length - 1) {
+      saveBestTime(timerSeconds);
+      document.getElementById('victoryTimeVal').textContent = formatTime(timerSeconds);
+      document.getElementById('victoryStarsVal').textContent = `${totalStarsCollected} / 15`;
+      document.getElementById('victoryScoreVal').textContent = totalGemsScore.toLocaleString();
+
+      let rank = '🌟 Telepathic Duo (Rank S)';
+      if (lives === 3 && timerSeconds < 180) rank = '👑 Flawless Masters (Rank S+)';
+      else if (lives <= 1) rank = '💪 Brave Survivors (Rank A)';
+      document.getElementById('teamworkRating').textContent = rank;
+
+      document.getElementById('victoryModal').classList.add('active');
+    } else {
+      document.getElementById('levelCompleteModal').classList.add('active');
+    }
+  }, 500);
+}
+
+function triggerGameOver() {
+  isPlaying = false;
+  document.getElementById('gameOverModal').classList.add('active');
+}
+
+/* ==========================================================================
+   UI EVENT HANDLERS & MODALS
+   ========================================================================== */
+// Difficulty Selector
+const diffBtns = [
+  document.getElementById('diffEasyBtn'),
+  document.getElementById('diffMedBtn'),
+  document.getElementById('diffHardBtn')
+];
+
+diffBtns.forEach(btn => {
+  btn.addEventListener('click', () => {
+    diffBtns.forEach(b => b.classList.remove('active'));
+    btn.classList.add('active');
+    difficulty = btn.dataset.diff;
+    loadBestTime();
+    if (!isPlaying) {
+      startLevel(0, false);
+    }
+  });
+});
+
+// Start Adventure Button
+document.getElementById('startAdventureBtn').addEventListener('click', () => {
+  document.getElementById('startModal').classList.remove('active');
+  lives = 3;
+  totalGemsScore = 0;
+  totalStarsCollected = 0;
+  startLevel(0, true);
+  startTimer();
+});
+
+// Next Level Button
+document.getElementById('nextLevelBtn').addEventListener('click', () => {
+  document.getElementById('levelCompleteModal').classList.remove('active');
+  startLevel(currentLevelIndex + 1, true);
+});
+
+// Retry Current Level
+document.getElementById('retryLevelBtn').addEventListener('click', () => {
+  document.getElementById('gameOverModal').classList.remove('active');
+  lives = 3;
+  startLevel(currentLevelIndex, true);
+});
+
+// Header Retry
+document.getElementById('restartBtn').addEventListener('click', () => {
+  lives = 3;
+  startLevel(currentLevelIndex, true);
+});
+
+// Restart All / Main Menu
+document.getElementById('restartAllBtn').addEventListener('click', () => {
+  document.getElementById('gameOverModal').classList.remove('active');
+  document.getElementById('startModal').classList.add('active');
+  loadBestTime();
+  startLevel(0, false);
+});
+
+document.getElementById('menuBtn').addEventListener('click', () => {
+  isPlaying = false;
+  document.getElementById('startModal').classList.add('active');
+  loadBestTime();
+  startLevel(0, false);
+});
+
+// Victory Play Again
+document.getElementById('playAgainVictoryBtn').addEventListener('click', () => {
+  document.getElementById('victoryModal').classList.remove('active');
+  document.getElementById('startModal').classList.add('active');
+  loadBestTime();
+  startLevel(0, false);
+});
+
+// Mute Toggle
+function toggleAudio() {
+  audio.muted = !audio.muted;
+  document.getElementById('muteIcon').textContent = audio.muted ? '🔇' : '🔊';
+}
+document.getElementById('muteBtn').addEventListener('click', toggleAudio);
+
+// Init on load
+resizeCanvas();
+loadBestTime();
+startLevel(0, false);
+requestAnimationFrame(gameLoop);
+
+</script>
+</body>
+</html>

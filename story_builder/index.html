@@ -1,0 +1,1854 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>Our Storybook: 2-Player Co-Op Story Builder</title>
+<meta name="description" content="A warm, cozy, 2-player cooperative story builder. Take turns picking visual character, place, action, and feeling cards to weave a heartwarming tale together on one shared device.">
+<style>
+  :root {
+    --bg-warm: #fcf8f2;
+    --paper: #fffefb;
+    --paper-card: #ffffff;
+    --text-dark: #2c2523;
+    --text-muted: #7c726d;
+    --p1-blue: #3b82f6;
+    --p1-light: #dbeafe;
+    --p1-dark: #1d4ed8;
+    --p2-red: #e11d48;
+    --p2-pink: #e11d48;
+    --p2-light: #ffe4e6;
+    --p2-dark: #9f1239;
+    --gold: #d97706;
+    --gold-light: #fef3c7;
+    --border-soft: rgba(180, 160, 140, 0.25);
+    --shadow-soft: 0 10px 30px rgba(120, 90, 70, 0.08);
+    --shadow-float: 0 16px 40px rgba(120, 90, 70, 0.14);
+    --font-serif: "Georgia", "Palatino", "Book Antiqua", serif;
+    --font-sans: "Quicksand", "Nunito", "Segoe UI", -apple-system, sans-serif;
+  }
+
+  * {
+    box-sizing: border-box;
+    margin: 0;
+    padding: 0;
+    user-select: none;
+    -webkit-user-select: none;
+  }
+
+  body {
+    background: radial-gradient(circle at 50% 15%, #fffdfa 0%, #f7f1e6 70%, #ede3d1 100%);
+    color: var(--text-dark);
+    font-family: var(--font-sans);
+    min-height: 100vh;
+    display: flex;
+    flex-direction: column;
+    align-items: center;
+    justify-content: flex-start;
+    overflow-x: hidden;
+  }
+
+  /* Ambient Floating Sparkles / Fireflies */
+  #fxCanvas {
+    position: fixed;
+    top: 0;
+    left: 0;
+    width: 100vw;
+    height: 100vh;
+    pointer-events: none;
+    z-index: 1;
+  }
+
+  /* Main Container */
+  .app-container {
+    position: relative;
+    z-index: 10;
+    width: 100%;
+    max-width: 1180px;
+    padding: 24px 20px 40px;
+    display: flex;
+    flex-direction: column;
+    align-items: center;
+    min-height: 100vh;
+  }
+
+  /* Top Navigation & Status Bar */
+  .top-bar {
+    width: 100%;
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    margin-bottom: 20px;
+  }
+
+  .brand-title {
+    display: flex;
+    align-items: center;
+    gap: 10px;
+    font-family: var(--font-serif);
+    font-size: 24px;
+    color: #4a3828;
+    font-weight: 700;
+  }
+
+  .nav-actions {
+    display: flex;
+    align-items: center;
+    gap: 12px;
+  }
+
+  .soft-btn {
+    padding: 8px 16px;
+    border-radius: 999px;
+    background: rgba(255, 255, 255, 0.8);
+    border: 1px solid var(--border-soft);
+    color: var(--text-dark);
+    font-size: 14px;
+    font-weight: 700;
+    cursor: pointer;
+    box-shadow: 0 4px 12px rgba(0, 0, 0, 0.04);
+    display: inline-flex;
+    align-items: center;
+    gap: 6px;
+    transition: all 0.2s ease;
+  }
+  .soft-btn:hover {
+    background: #ffffff;
+    transform: translateY(-2px);
+    box-shadow: 0 6px 16px rgba(0, 0, 0, 0.08);
+  }
+
+  /* SCREEN 1: THEME SELECTION */
+  #themeScreen {
+    width: 100%;
+    max-width: 900px;
+    display: flex;
+    flex-direction: column;
+    align-items: center;
+    text-align: center;
+    margin-top: 20px;
+    animation: fadeIn 0.5s ease;
+  }
+
+  .hero-tag {
+    font-size: 13px;
+    font-weight: 800;
+    text-transform: uppercase;
+    letter-spacing: 2px;
+    color: var(--gold);
+    background: var(--gold-light);
+    padding: 6px 18px;
+    border-radius: 999px;
+    margin-bottom: 16px;
+  }
+
+  .hero-heading {
+    font-family: var(--font-serif);
+    font-size: clamp(32px, 5vw, 48px);
+    color: #3b2818;
+    line-height: 1.2;
+    margin-bottom: 12px;
+  }
+
+  .hero-sub {
+    font-size: 17px;
+    color: var(--text-muted);
+    max-width: 600px;
+    line-height: 1.6;
+    margin-bottom: 36px;
+  }
+
+  .theme-grid {
+    display: grid;
+    grid-template-columns: repeat(auto-fit, minmax(160px, 1fr));
+    gap: 20px;
+    width: 100%;
+    margin-bottom: 30px;
+  }
+
+  .theme-card {
+    background: var(--paper-card);
+    border: 2px solid var(--border-soft);
+    border-radius: 24px;
+    padding: 26px 16px;
+    cursor: pointer;
+    display: flex;
+    flex-direction: column;
+    align-items: center;
+    box-shadow: var(--shadow-soft);
+    transition: all 0.25s cubic-bezier(0.16, 1, 0.3, 1);
+  }
+  .theme-card:hover {
+    transform: translateY(-6px) scale(1.02);
+    border-color: #f59e0b;
+    box-shadow: var(--shadow-float);
+  }
+  .theme-card .theme-icon {
+    font-size: 48px;
+    margin-bottom: 14px;
+    filter: drop-shadow(0 4px 10px rgba(0,0,0,0.1));
+  }
+  .theme-card .theme-title {
+    font-family: var(--font-serif);
+    font-size: 19px;
+    font-weight: 700;
+    margin-bottom: 6px;
+    color: #382415;
+  }
+  .theme-card .theme-desc {
+    font-size: 12px;
+    color: var(--text-muted);
+    line-height: 1.4;
+  }
+
+  /* SCREEN 2: ACTIVE STORY BUILDING SCREEN */
+  #builderScreen {
+    width: 100%;
+    display: none;
+    flex-direction: column;
+    align-items: center;
+    animation: fadeIn 0.4s ease;
+  }
+
+  /* Story Progress & Turn Tracker */
+  .builder-header {
+    width: 100%;
+    max-width: 980px;
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    padding: 14px 24px;
+    background: rgba(255, 255, 255, 0.85);
+    border: 1px solid var(--border-soft);
+    border-radius: 20px;
+    margin-bottom: 22px;
+    box-shadow: var(--shadow-soft);
+  }
+
+  .round-pill {
+    display: flex;
+    align-items: center;
+    gap: 8px;
+    font-family: var(--font-serif);
+    font-size: 17px;
+    font-weight: 700;
+    color: #4a3422;
+  }
+
+  .turn-announcer {
+    display: inline-flex;
+    align-items: center;
+    gap: 12px;
+    padding: 8px 20px;
+    border-radius: 999px;
+    font-size: 15px;
+    font-weight: 800;
+    transition: all 0.3s ease;
+  }
+  .turn-p1 {
+    background: var(--p1-light);
+    color: var(--p1-dark);
+    box-shadow: 0 0 18px rgba(59, 130, 246, 0.25);
+  }
+  .turn-p2 {
+    background: var(--p2-light);
+    color: var(--p2-dark);
+    box-shadow: 0 0 18px rgba(236, 72, 153, 0.25);
+  }
+
+  /* Illustrated Prompt Stage */
+  .stage-box {
+    width: 100%;
+    max-width: 980px;
+    min-height: 170px;
+    background: var(--paper);
+    border: 2px dashed rgba(190, 160, 130, 0.35);
+    border-radius: 24px;
+    padding: 24px 30px;
+    display: flex;
+    flex-direction: column;
+    align-items: center;
+    justify-content: center;
+    margin-bottom: 26px;
+    box-shadow: inset 0 2px 8px rgba(0,0,0,0.02);
+    position: relative;
+    overflow: hidden;
+  }
+
+  .stage-prompt-title {
+    font-family: var(--font-serif);
+    font-size: 15px;
+    color: var(--text-muted);
+    letter-spacing: 1px;
+    text-transform: uppercase;
+    margin-bottom: 12px;
+  }
+
+  .stage-sentence {
+    font-family: var(--font-serif);
+    font-size: clamp(22px, 3.2vw, 30px);
+    color: #3b2818;
+    text-align: center;
+    line-height: 1.5;
+    display: flex;
+    flex-wrap: wrap;
+    align-items: center;
+    justify-content: center;
+    gap: 10px;
+  }
+
+  .token-chip {
+    display: inline-flex;
+    align-items: center;
+    gap: 6px;
+    padding: 4px 14px;
+    border-radius: 14px;
+    font-weight: 700;
+    box-shadow: 0 3px 8px rgba(0,0,0,0.06);
+    animation: popIn 0.3s cubic-bezier(0.175, 0.885, 0.32, 1.275);
+  }
+  .chip-char { background: #dbeafe; color: #1e40af; border: 1px solid #93c5fd; }
+  .chip-place { background: #dcfce7; color: #166534; border: 1px solid #86efac; }
+  .chip-act { background: #fef3c7; color: #92400e; border: 1px solid #fde68a; }
+  .chip-feel { background: #fce7f3; color: #9d174d; border: 1px solid #fbcfe8; }
+
+  .empty-slot {
+    display: inline-flex;
+    align-items: center;
+    justify-content: center;
+    min-width: 90px;
+    padding: 4px 14px;
+    border-radius: 12px;
+    border: 2px dashed rgba(160, 140, 120, 0.4);
+    color: #a89f91;
+    font-size: 16px;
+    font-style: italic;
+  }
+
+  /* 4 Choice Cards Carousel */
+  .choices-section {
+    width: 100%;
+    max-width: 980px;
+    display: flex;
+    flex-direction: column;
+    align-items: center;
+  }
+
+  .choice-prompt-label {
+    font-family: var(--font-serif);
+    font-size: 20px;
+    color: #4a3422;
+    margin-bottom: 18px;
+    font-weight: 700;
+  }
+
+  .cards-grid {
+    display: grid;
+    grid-template-columns: repeat(4, 1fr);
+    gap: 18px;
+    width: 100%;
+    margin-bottom: 24px;
+  }
+
+  .choice-card {
+    background: var(--paper-card);
+    border: 3px solid var(--border-soft);
+    border-radius: 24px;
+    padding: 24px 14px;
+    display: flex;
+    flex-direction: column;
+    align-items: center;
+    justify-content: center;
+    text-align: center;
+    cursor: pointer;
+    box-shadow: var(--shadow-soft);
+    transition: all 0.25s cubic-bezier(0.16, 1, 0.3, 1);
+    position: relative;
+    aspect-ratio: 4 / 5;
+  }
+
+  .choice-card:hover {
+    transform: translateY(-8px) scale(1.03);
+    box-shadow: var(--shadow-float);
+  }
+
+  .choice-card.selected-p1 {
+    border-color: var(--p1-blue);
+    background: #f0f7ff;
+    box-shadow: 0 12px 30px rgba(59, 130, 246, 0.3);
+    transform: translateY(-10px) scale(1.05);
+  }
+
+  .choice-card.selected-p2 {
+    border-color: var(--p2-red);
+    background: #fff1f2;
+    box-shadow: 0 12px 30px rgba(225, 29, 72, 0.3);
+    transform: translateY(-10px) scale(1.05);
+  }
+
+  .card-emoji {
+    font-size: 64px;
+    margin-bottom: 14px;
+    filter: drop-shadow(0 6px 12px rgba(0,0,0,0.08));
+    transition: transform 0.25s cubic-bezier(0.175, 0.885, 0.32, 1.275);
+  }
+  .choice-card:hover .card-emoji,
+  .choice-card.selected-p1 .card-emoji,
+  .choice-card.selected-p2 .card-emoji {
+    transform: scale(1.18);
+  }
+
+  .card-word {
+    font-family: var(--font-serif);
+    font-size: 19px;
+    font-weight: 700;
+    color: #3b2818;
+    line-height: 1.25;
+  }
+
+  .card-key-badge {
+    position: absolute;
+    bottom: 12px;
+    font-size: 11px;
+    color: var(--text-muted);
+    font-weight: 800;
+    background: rgba(0,0,0,0.05);
+    padding: 3px 10px;
+    border-radius: 999px;
+  }
+
+  /* Controls Guide Bar */
+  .controls-guide-bar {
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    gap: 16px;
+    font-size: 13.5px;
+    color: var(--text-muted);
+    background: rgba(255, 255, 255, 0.85);
+    padding: 10px 24px;
+    border-radius: 999px;
+    border: 1px solid var(--border-soft);
+    box-shadow: 0 4px 12px rgba(0,0,0,0.03);
+    margin-top: 14px;
+  }
+
+  .keycap {
+    display: inline-flex;
+    align-items: center;
+    justify-content: center;
+    padding: 3px 8px;
+    border-radius: 6px;
+    background: #ffffff;
+    border: 1px solid #d1c7bc;
+    color: #4a3828;
+    font-weight: 800;
+    font-size: 11px;
+    box-shadow: 0 2px 0 rgba(0,0,0,0.12);
+    margin: 0 2px;
+  }
+
+  /* Illustrated Scene Display at Top of Stage */
+  .stage-scene-container {
+    width: 100%;
+    margin-bottom: 18px;
+    display: flex;
+    flex-direction: column;
+    align-items: center;
+    gap: 12px;
+  }
+
+  .scene-prompt-banner {
+    display: inline-flex;
+    align-items: center;
+    gap: 10px;
+    background: rgba(255, 255, 255, 0.95);
+    border: 1px solid var(--border-soft);
+    padding: 8px 22px;
+    border-radius: 999px;
+    box-shadow: 0 4px 14px rgba(0,0,0,0.04);
+    font-family: var(--font-serif);
+    font-size: 15px;
+    font-weight: 700;
+    color: #4a3422;
+  }
+
+  .scene-backdrop {
+    width: 100%;
+    height: 130px;
+    border-radius: 20px;
+    background: linear-gradient(180deg, #fefbf3 0%, #faede1 100%);
+    border: 1px solid rgba(190, 160, 130, 0.25);
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    padding: 0 44px;
+    position: relative;
+    overflow: hidden;
+    box-shadow: inset 0 2px 10px rgba(0,0,0,0.03);
+    transition: background 0.5s ease;
+  }
+
+  .scene-decor {
+    font-size: 50px;
+    filter: drop-shadow(0 6px 12px rgba(0,0,0,0.08));
+    transition: all 0.5s cubic-bezier(0.175, 0.885, 0.32, 1.275);
+    opacity: 0.9;
+  }
+  .decor-left { animation: floatSlow 4s ease-in-out infinite; }
+  .decor-right { animation: floatSlow 4s ease-in-out infinite 2s; }
+
+  .scene-actors {
+    position: relative;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+  }
+
+  .actor-character {
+    font-size: 68px;
+    filter: drop-shadow(0 8px 16px rgba(0,0,0,0.12));
+    transition: all 0.4s cubic-bezier(0.175, 0.885, 0.32, 1.275);
+  }
+  .actor-character.hop {
+    animation: actorBounce 0.6s cubic-bezier(0.175, 0.885, 0.32, 1.275);
+  }
+
+  .actor-action-bubble {
+    position: absolute;
+    top: -20px;
+    right: -24px;
+    font-size: 30px;
+    background: #ffffff;
+    border-radius: 999px;
+    padding: 6px 10px;
+    box-shadow: 0 6px 16px rgba(0,0,0,0.12);
+    border: 2px solid #fde68a;
+    animation: popIn 0.35s cubic-bezier(0.175, 0.885, 0.32, 1.275);
+  }
+
+  .actor-feeling-heart {
+    position: absolute;
+    top: -26px;
+    left: -22px;
+    font-size: 28px;
+    animation: heartPulse 1.2s ease-in-out infinite;
+  }
+
+  @keyframes floatSlow {
+    0%, 100% { transform: translateY(0); }
+    50% { transform: translateY(-7px); }
+  }
+
+  @keyframes actorBounce {
+    0% { transform: scale(0.6) translateY(20px); opacity: 0; }
+    50% { transform: scale(1.25) translateY(-14px); }
+    100% { transform: scale(1) translateY(0); opacity: 1; }
+  }
+
+  @keyframes heartPulse {
+    0%, 100% { transform: scale(1) rotate(-6deg); }
+    50% { transform: scale(1.2) rotate(6deg); }
+  }
+
+  /* Real-Time Growing Comic Strip */
+  .comic-strip-section {
+    width: 100%;
+    margin-top: 32px;
+    background: rgba(255, 255, 255, 0.7);
+    border: 1px solid var(--border-soft);
+    border-radius: 24px;
+    padding: 22px 26px;
+    box-shadow: var(--shadow-soft);
+    animation: fadeIn 0.4s ease;
+  }
+
+  .comic-strip-header {
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    margin-bottom: 16px;
+    padding-bottom: 10px;
+    border-bottom: 1px solid rgba(180, 160, 140, 0.2);
+  }
+
+  .comic-badge {
+    font-family: var(--font-serif);
+    font-size: 16px;
+    font-weight: 800;
+    color: #4a3422;
+    display: flex;
+    align-items: center;
+    gap: 8px;
+  }
+
+  .comic-subtitle {
+    font-size: 12px;
+    color: var(--text-muted);
+    font-weight: 700;
+    background: #fef3c7;
+    color: #92400e;
+    padding: 3px 10px;
+    border-radius: 999px;
+  }
+
+  .comic-panels-grid {
+    display: grid;
+    grid-template-columns: repeat(auto-fill, minmax(260px, 1fr));
+    gap: 14px;
+  }
+
+  .comic-panel-card {
+    background: #ffffff;
+    border: 1px solid rgba(190, 160, 130, 0.22);
+    border-radius: 16px;
+    padding: 14px 16px;
+    box-shadow: 0 4px 12px rgba(0,0,0,0.03);
+    transition: all 0.2s ease;
+    animation: popIn 0.35s cubic-bezier(0.175, 0.885, 0.32, 1.275);
+    display: flex;
+    flex-direction: column;
+    gap: 8px;
+  }
+  .comic-panel-card:hover {
+    transform: translateY(-3px);
+    box-shadow: 0 8px 18px rgba(0,0,0,0.06);
+  }
+
+  .panel-header-row {
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+  }
+
+  .panel-chap-tag {
+    font-size: 11px;
+    font-weight: 800;
+    text-transform: uppercase;
+    letter-spacing: 0.5px;
+    color: #854d0e;
+    background: #fef3c7;
+    padding: 2px 8px;
+    border-radius: 999px;
+  }
+
+  .panel-icons-row {
+    display: flex;
+    gap: 4px;
+    font-size: 18px;
+  }
+
+  .panel-prose-text {
+    font-family: var(--font-serif);
+    font-size: 13.5px;
+    line-height: 1.45;
+    color: #3b2818;
+  }
+
+  /* Fun Round Transition Overlay */
+  .round-transition-overlay {
+    position: fixed;
+    top: 0;
+    left: 0;
+    width: 100vw;
+    height: 100vh;
+    background: rgba(44, 37, 35, 0.4);
+    backdrop-filter: blur(5px);
+    -webkit-backdrop-filter: blur(5px);
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    z-index: 100;
+    opacity: 0;
+    pointer-events: none;
+    transition: opacity 0.3s ease;
+  }
+
+  .round-transition-overlay.active {
+    opacity: 1;
+    pointer-events: auto;
+  }
+
+  .transition-popup-card {
+    background: #fffefb;
+    border: 2px solid #fde68a;
+    border-radius: 26px;
+    padding: 32px 40px;
+    text-align: center;
+    box-shadow: 0 24px 60px rgba(0,0,0,0.25);
+    transform: scale(0.85);
+    transition: transform 0.35s cubic-bezier(0.175, 0.885, 0.32, 1.275);
+    max-width: 440px;
+    width: 90%;
+  }
+
+  .round-transition-overlay.active .transition-popup-card {
+    transform: scale(1);
+  }
+
+  .trans-stars {
+    font-size: 36px;
+    margin-bottom: 10px;
+  }
+
+  .trans-title {
+    font-family: var(--font-serif);
+    font-size: 24px;
+    font-weight: 800;
+    color: #4a3422;
+    margin-bottom: 8px;
+  }
+
+  .trans-sub {
+    font-size: 14.5px;
+    color: var(--text-muted);
+  }
+
+  /* SCREEN 3: COMPLETED STORYBOOK ANTHOLOGY */
+  #storybookScreen {
+    width: 100%;
+    max-width: 900px;
+    display: none;
+    flex-direction: column;
+    align-items: center;
+    animation: fadeIn 0.6s ease;
+  }
+
+  .storybook-book {
+    width: 100%;
+    background: var(--paper);
+    border: 1px solid #e0d5c3;
+    border-radius: 28px;
+    padding: 48px 40px;
+    box-shadow: 0 24px 60px rgba(90, 60, 40, 0.12), inset 0 0 40px rgba(220, 200, 180, 0.2);
+    position: relative;
+    margin-bottom: 30px;
+  }
+
+  .book-header {
+    text-align: center;
+    border-bottom: 2px solid rgba(190, 160, 130, 0.3);
+    padding-bottom: 24px;
+    margin-bottom: 32px;
+  }
+
+  .book-theme-emblem {
+    font-size: 56px;
+    margin-bottom: 10px;
+  }
+
+  .book-main-title {
+    font-family: var(--font-serif);
+    font-size: 38px;
+    color: #3b2818;
+    margin-bottom: 8px;
+  }
+
+  .book-authors {
+    font-size: 16px;
+    color: var(--gold);
+    font-weight: 700;
+    font-style: italic;
+  }
+
+  .book-chapters-list {
+    display: flex;
+    flex-direction: column;
+    gap: 22px;
+  }
+
+  .chapter-item {
+    display: flex;
+    align-items: flex-start;
+    gap: 18px;
+    padding: 16px 20px;
+    background: rgba(255, 255, 255, 0.7);
+    border: 1px solid rgba(220, 200, 180, 0.4);
+    border-radius: 18px;
+    box-shadow: 0 4px 12px rgba(0, 0, 0, 0.02);
+  }
+
+  .chapter-number {
+    font-family: var(--font-serif);
+    font-size: 22px;
+    font-weight: 700;
+    color: var(--gold);
+    min-width: 32px;
+  }
+
+  .chapter-content {
+    flex: 1;
+  }
+
+  .chapter-icons-row {
+    font-size: 28px;
+    margin-bottom: 6px;
+    display: flex;
+    gap: 8px;
+  }
+
+  .chapter-prose {
+    font-family: var(--font-serif);
+    font-size: 20px;
+    color: #2e2015;
+    line-height: 1.5;
+  }
+
+  .storybook-actions {
+    display: flex;
+    gap: 16px;
+    flex-wrap: wrap;
+    justify-content: center;
+  }
+
+  .action-btn-primary {
+    padding: 14px 28px;
+    border-radius: 999px;
+    background: linear-gradient(135deg, #d97706, #b45309);
+    color: #ffffff;
+    font-size: 16px;
+    font-weight: 800;
+    border: none;
+    cursor: pointer;
+    box-shadow: 0 8px 24px rgba(217, 119, 6, 0.3);
+    transition: all 0.2s ease;
+    display: inline-flex;
+    align-items: center;
+    gap: 8px;
+  }
+  .action-btn-primary:hover {
+    transform: translateY(-2px);
+    box-shadow: 0 12px 28px rgba(217, 119, 6, 0.4);
+  }
+
+  .action-btn-secondary {
+    padding: 14px 28px;
+    border-radius: 999px;
+    background: #ffffff;
+    border: 2px solid var(--border-soft);
+    color: #4a3828;
+    font-size: 16px;
+    font-weight: 800;
+    cursor: pointer;
+    box-shadow: var(--shadow-soft);
+    transition: all 0.2s ease;
+  }
+  .action-btn-secondary:hover {
+    background: #faf5ed;
+    transform: translateY(-2px);
+  }
+
+  /* Keyframe Animations */
+  @keyframes fadeIn {
+    from { opacity: 0; transform: translateY(10px); }
+    to { opacity: 1; transform: translateY(0); }
+  }
+
+  @keyframes popIn {
+    0% { transform: scale(0.6); opacity: 0; }
+    80% { transform: scale(1.1); }
+    100% { transform: scale(1); opacity: 1; }
+  }
+
+  @media (max-width: 768px) {
+    .cards-grid { grid-template-columns: repeat(2, 1fr); }
+    .storybook-book { padding: 30px 20px; }
+  }
+</style>
+</head>
+<body>
+
+<canvas id="fxCanvas"></canvas>
+
+<div class="app-container">
+  <!-- Top Bar -->
+  <header class="top-bar">
+    <div class="brand-title">
+      <span>📖</span> Our Storybook
+    </div>
+    <div class="nav-actions">
+      <button class="soft-btn" id="musicToggleBtn" title="Toggle Calming Music (M)">
+        <span id="musicIcon">🎵</span> MUSIC
+      </button>
+      <button class="soft-btn" id="newStoryNavBtn">
+        <span>✨</span> New Tale
+      </button>
+    </div>
+  </header>
+
+  <!-- SCREEN 1: THEME SELECTION -->
+  <section id="themeScreen">
+    <div class="hero-tag">A 2-Player Co-Op Tale</div>
+    <h1 class="hero-heading">What kind of story shall we build?</h1>
+    <p class="hero-sub">Take turns picking characters, enchanting places, actions, and tender feelings to write a 10-chapter storybook together.</p>
+
+    <div class="theme-grid" id="themeGrid">
+      <!-- Populated via JS -->
+    </div>
+  </section>
+
+  <!-- SCREEN 2: ACTIVE STORY BUILDER -->
+  <section id="builderScreen">
+    <div class="builder-header">
+      <div class="round-pill">
+        <span>📜</span> <span id="roundCounterText">Chapter 1 of 10</span>
+      </div>
+      <div class="turn-announcer turn-p1" id="turnAnnouncerBadge">
+        <span id="turnPlayerIcon">🔷</span>
+        <span id="turnPlayerName">PLAYER 1'S TURN</span>
+      </div>
+    </div>
+
+    <!-- Progressive Stage with Visual Scene Illustration -->
+    <div class="stage-box" id="stageBox">
+      <div class="stage-scene-container">
+        <div class="scene-prompt-banner">
+          <span class="prompt-icon" id="promptIcon">🌅</span>
+          <span class="prompt-text" id="promptText">Chapter 1: The Story Begins</span>
+        </div>
+        
+        <div class="scene-backdrop" id="sceneBackdrop">
+          <div class="scene-decor decor-left" id="decorLeft">🌲</div>
+          <div class="scene-actors">
+            <div class="actor-character" id="actorChar">❓</div>
+            <div class="actor-action-bubble" id="actorActionBubble" style="display: none;"></div>
+            <div class="actor-feeling-heart" id="actorFeelingHeart" style="display: none;"></div>
+          </div>
+          <div class="scene-decor decor-right" id="decorRight">🏔️</div>
+        </div>
+      </div>
+
+      <div class="stage-prompt-title" id="stageThemeTag">🌙 Adventure Tale</div>
+      <div class="stage-sentence" id="stageSentenceContent">
+        <!-- Tokens rendered dynamically -->
+      </div>
+    </div>
+
+    <!-- Choice Cards Carousel -->
+    <div class="choices-section">
+      <div class="choice-prompt-label" id="choiceCategoryLabel">Pick a Character:</div>
+      <div class="cards-grid" id="cardsGrid">
+        <!-- 4 Cards rendered dynamically -->
+      </div>
+
+      <div class="controls-guide-bar">
+        <span>🔷 <strong>P1:</strong> <span class="keycap">←</span> <span class="keycap">→</span> to select, <span class="keycap">SPACE</span> to confirm</span>
+        <span>•</span>
+        <span>🔶 <strong>P2:</strong> <span class="keycap">A</span> <span class="keycap">D</span> to select, <span class="keycap">ENTER</span> to confirm</span>
+        <span>•</span>
+        <span>🖱️ <em>Or click card</em></span>
+      </div>
+
+      <!-- Real-Time Growing Comic Strip of Finished Chapters -->
+      <div class="comic-strip-section" id="comicStripSection" style="display: none;">
+        <div class="comic-strip-header">
+          <div class="comic-badge">📖 The Story So Far (Comic Strip)</div>
+          <div class="comic-subtitle" id="comicCountBadge">0 Chapters Written</div>
+        </div>
+        <div class="comic-panels-grid" id="comicPanelsGrid">
+          <!-- Filled as each chapter finishes -->
+        </div>
+      </div>
+    </div>
+  </section>
+
+  <!-- SCREEN 3: COMPLETED STORYBOOK ANTHOLOGY -->
+  <section id="storybookScreen">
+    <article class="storybook-book" id="storybookArticle">
+      <div class="book-header">
+        <div class="book-theme-emblem" id="bookThemeEmblem">✨</div>
+        <h2 class="book-main-title" id="bookMainTitle">The Tale of Two Dreamers</h2>
+        <div class="book-authors">Written with love by Player 1 & Player 2</div>
+      </div>
+
+      <div class="book-chapters-list" id="bookChaptersList">
+        <!-- All 10 Chapters rendered here -->
+      </div>
+    </article>
+
+    <div class="storybook-actions">
+      <button class="action-btn-primary" id="saveStoryBtn">
+        <span>📸</span> Print / Save Story
+      </button>
+      <button class="action-btn-secondary" id="playAgainBtn">
+        <span>📖</span> Write Another Story
+      </button>
+    </div>
+  </section>
+
+  <!-- Round Transition Overlay -->
+  <div class="round-transition-overlay" id="roundTransitionOverlay">
+    <div class="transition-popup-card">
+      <div class="trans-stars">✨ 🌟 ✨</div>
+      <div class="trans-title" id="transTitle">Chapter 1 Complete!</div>
+      <div class="trans-sub" id="transSub">Turning to the next page... 📖</div>
+    </div>
+  </div>
+</div>
+
+<script>
+'use strict';
+
+/* ==========================================================================
+   STORYBUILDER THEMES & CARD POOLS
+   ========================================================================== */
+const THEMES = [
+  {
+    id: 'adventure',
+    title: 'Adventure',
+    icon: '🌙',
+    desc: 'Forests, mountains, hidden treasure & ancient magic',
+    accent: '#d97706',
+    chars: [
+      { emoji: '🦊', word: 'Curious Fox' },
+      { emoji: '🐻', word: 'Gentle Bear' },
+      { emoji: '🧚', word: 'Forest Fairy' },
+      { emoji: '🧝', word: 'Brave Elf' },
+      { emoji: '🦉', word: 'Wise Owl' },
+      { emoji: '🦌', word: 'Silver Deer' }
+    ],
+    places: [
+      { emoji: '🌲', word: 'Whispering Forest' },
+      { emoji: '🏔️', word: 'Misty Mountain' },
+      { emoji: '🏰', word: 'Ancient Castle' },
+      { emoji: '🌿', word: 'Hidden Glade' },
+      { emoji: '⛺', word: 'Cozy Campfire' },
+      { emoji: '🌉', word: 'Rope Bridge' }
+    ]
+  },
+  {
+    id: 'ocean',
+    title: 'Ocean',
+    icon: '🌊',
+    desc: 'Sea creatures, golden islands & coral lagoons',
+    accent: '#0284c7',
+    chars: [
+      { emoji: '🐬', word: 'Playful Dolphin' },
+      { emoji: '🐢', word: 'Old Sea Turtle' },
+      { emoji: '🧜‍♀️', word: 'Mermaid' },
+      { emoji: '🐳', word: 'Singing Whale' },
+      { emoji: '🦀', word: 'Tiny Crab' },
+      { emoji: '🦭', word: 'Happy Seal' }
+    ],
+    places: [
+      { emoji: '🌊', word: 'Deep Blue Ocean' },
+      { emoji: '🏖️', word: 'Sunny Beach' },
+      { emoji: '🪸', word: 'Coral Reef' },
+      { emoji: '🏝️', word: 'Secret Island' },
+      { emoji: '🐚', word: 'Tide Pool' },
+      { emoji: '⚓', word: 'Sunken Ship' }
+    ]
+  },
+  {
+    id: 'space',
+    title: 'Space',
+    icon: '🚀',
+    desc: 'Glowing planets, kind aliens & cosmic voyages',
+    accent: '#8b5cf6',
+    chars: [
+      { emoji: '🤖', word: 'Little Robot' },
+      { emoji: '🧑‍🚀', word: 'Astronaut' },
+      { emoji: '👾', word: 'Friendly Alien' },
+      { emoji: '🌟', word: 'Shooting Star' },
+      { emoji: '🐱', word: 'Cosmic Kitty' },
+      { emoji: '🛸', word: 'Tiny UFO' }
+    ],
+    places: [
+      { emoji: '🚀', word: 'Starlight Rocket' },
+      { emoji: '🪐', word: 'Ringed Planet' },
+      { emoji: '🌕', word: 'Glowing Moon' },
+      { emoji: '🌌', word: 'Cosmic Nebula' },
+      { emoji: '☄️', word: 'Asteroid Field' },
+      { emoji: '🛰️', word: 'Space Station' }
+    ]
+  },
+  {
+    id: 'home',
+    title: 'Cozy Home',
+    icon: '🏡',
+    desc: 'Baking, family cuddles, gardens & rainy days',
+    accent: '#10b981',
+    chars: [
+      { emoji: '👧', word: 'Sweet Girl' },
+      { emoji: '👦', word: 'Happy Boy' },
+      { emoji: '🐶', word: 'Fluffy Puppy' },
+      { emoji: '🐱', word: 'Sleepy Cat' },
+      { emoji: '👵', word: 'Kind Grandma' },
+      { emoji: '🦔', word: 'Garden Hedgehog' }
+    ],
+    places: [
+      { emoji: '🏡', word: 'Cozy Cottage' },
+      { emoji: '🌸', word: 'Flower Garden' },
+      { emoji: '🛋️', word: 'Warm Fireside' },
+      { emoji: '🍳', word: 'Sunlit Kitchen' },
+      { emoji: '🌳', word: 'Backyard Tree' },
+      { emoji: '🛏️', word: 'Blanket Fort' }
+    ]
+  },
+  {
+    id: 'baby',
+    title: 'Baby Story',
+    icon: '👶',
+    desc: 'Sweet lullabies, soft clouds & warm hugs',
+    accent: '#ec4899',
+    chars: [
+      { emoji: '👶', word: 'Precious Baby' },
+      { emoji: '🧸', word: 'Teddy Bear' },
+      { emoji: '🐰', word: 'Bunny Rabbit' },
+      { emoji: '🐥', word: 'Little Duckling' },
+      { emoji: '🦋', word: 'Soft Butterfly' },
+      { emoji: '☁️', word: 'Cotton Cloud' }
+    ],
+    places: [
+      { emoji: '🛏️', word: 'Sweet Cradle' },
+      { emoji: '🌈', word: 'Pastel Rainbow' },
+      { emoji: '☁️', word: 'Fluffy Clouds' },
+      { emoji: '🛁', word: 'Bubble Bath' },
+      { emoji: '🎠', word: 'Toy Carousel' },
+      { emoji: '🌙', word: 'Moonlit Window' }
+    ]
+  }
+];
+
+// Universal Actions pool (fun, expressive verbs)
+const SHARED_ACTIONS = [
+  { emoji: '💃', word: 'Dancing with joy' },
+  { emoji: '🍳', word: 'Baking sweet treats' },
+  { emoji: '🔍', word: 'Searching for clues' },
+  { emoji: '💌', word: 'Sending love letters' },
+  { emoji: '🌱', word: 'Planting magic seeds' },
+  { emoji: '🎵', word: 'Singing a sweet song' },
+  { emoji: '🤝', word: 'Meeting a new friend' },
+  { emoji: '🎁', word: 'Unwrapping a surprise' },
+  { emoji: '🎨', word: 'Painting the sky' },
+  { emoji: '📚', word: 'Reading an old book' },
+  { emoji: '✨', word: 'Making a secret wish' },
+  { emoji: '💤', word: 'Taking a cozy nap' }
+];
+
+// Universal Feelings pool
+const SHARED_FEELINGS = [
+  { emoji: '🥰', word: 'Deeply loved' },
+  { emoji: '😊', word: 'Full of happiness' },
+  { emoji: '😄', word: 'Super excited' },
+  { emoji: '😌', word: 'Calm & peaceful' },
+  { emoji: '😮', word: 'Wide-eyed surprised' },
+  { emoji: '🤔', word: 'Quietly curious' },
+  { emoji: '🎉', word: 'Ready to celebrate' },
+  { emoji: '💪', word: 'Brave and strong' },
+  { emoji: '🥺', word: 'Gently touched' },
+  { emoji: '✨', word: 'Totally enchanted' }
+];
+
+/* ==========================================================================
+   AUDIO SYNTHESIZER (Gentle Pentatonic Harp & Soft SFX)
+   ========================================================================== */
+class CozyAudio {
+  constructor() {
+    this.ctx = null;
+    this.musicPlaying = false;
+    this.musicTimer = null;
+  }
+
+  init() {
+    if (!this.ctx) {
+      const AudioCtx = window.AudioContext || window.webkitAudioContext;
+      if (AudioCtx) this.ctx = new AudioCtx();
+    }
+    if (this.ctx && this.ctx.state === 'suspended') {
+      this.ctx.resume();
+    }
+  }
+
+  toggleMusic() {
+    this.init();
+    this.musicPlaying = !this.musicPlaying;
+    const icon = document.getElementById('musicIcon');
+    if (icon) icon.textContent = this.musicPlaying ? '🎶' : '🎵';
+
+    if (this.musicPlaying) {
+      this.startAmbientHarp();
+    } else {
+      this.stopAmbientHarp();
+    }
+    return this.musicPlaying;
+  }
+
+  playNote(freq, time, dur = 1.2, vol = 0.15) {
+    if (!this.ctx) return;
+    try {
+      const osc = this.ctx.createOscillator();
+      const gain = this.ctx.createGain();
+      osc.type = 'sine';
+      osc.frequency.setValueAtTime(freq, time);
+
+      gain.gain.setValueAtTime(vol, time);
+      gain.gain.exponentialRampToValueAtTime(0.001, time + dur);
+
+      osc.connect(gain);
+      gain.connect(this.ctx.destination);
+      osc.start(time);
+      osc.stop(time + dur);
+    } catch (e) {}
+  }
+
+  startAmbientHarp() {
+    if (!this.ctx || !this.musicPlaying) return;
+    const pentatonic = [261.63, 293.66, 329.63, 392.00, 440.00, 523.25, 587.33, 659.25]; // C D E G A C D E
+
+    const step = () => {
+      if (!this.musicPlaying) return;
+      const now = this.ctx.currentTime;
+      const note = pentatonic[Math.floor(Math.random() * pentatonic.length)];
+      this.playNote(note, now, 1.8, 0.08);
+
+      // Play soft harmonizing 5th occasionally
+      if (Math.random() < 0.4) {
+        const harm = pentatonic[(pentatonic.indexOf(note) + 2) % pentatonic.length];
+        this.playNote(harm, now + 0.15, 1.5, 0.05);
+      }
+
+      this.musicTimer = setTimeout(step, 800 + Math.random() * 800);
+    };
+    step();
+  }
+
+  stopAmbientHarp() {
+    if (this.musicTimer) clearTimeout(this.musicTimer);
+  }
+
+  // Soft wooden card tap
+  playCardTap() {
+    if (!this.ctx) return;
+    try {
+      const now = this.ctx.currentTime;
+      const osc = this.ctx.createOscillator();
+      const gain = this.ctx.createGain();
+      osc.type = 'triangle';
+      osc.frequency.setValueAtTime(380, now);
+      osc.frequency.exponentialRampToValueAtTime(140, now + 0.06);
+      gain.gain.setValueAtTime(0.15, now);
+      gain.gain.exponentialRampToValueAtTime(0.005, now + 0.06);
+      osc.connect(gain);
+      gain.connect(this.ctx.destination);
+      osc.start(now);
+      osc.stop(now + 0.06);
+    } catch (e) {}
+  }
+
+  // Sweet chime upon selecting a piece
+  playPick() {
+    if (!this.ctx) return;
+    try {
+      const now = this.ctx.currentTime;
+      [523.25, 659.25, 783.99].forEach((f, i) => {
+        this.playNote(f, now + i * 0.05, 0.6, 0.12);
+      });
+    } catch (e) {}
+  }
+
+  // Magical chord when full chapter sentence completes
+  playChapterComplete() {
+    if (!this.ctx) return;
+    try {
+      const now = this.ctx.currentTime;
+      [392, 523.25, 659.25, 783.99, 1046.50].forEach((f, i) => {
+        this.playNote(f, now + i * 0.07, 1.4, 0.15);
+      });
+    } catch (e) {}
+  }
+}
+
+const audio = new CozyAudio();
+document.getElementById('musicToggleBtn').addEventListener('click', () => {
+  audio.toggleMusic();
+});
+
+/* ==========================================================================
+   PARTICLE CANVAS (Hearts, Golden Dust & Sparkles)
+   ========================================================================== */
+const fxCanvas = document.getElementById('fxCanvas');
+const fxCtx = fxCanvas.getContext('2d');
+let particles = [];
+
+function resizeCanvas() {
+  fxCanvas.width = window.innerWidth;
+  fxCanvas.height = window.innerHeight;
+}
+window.addEventListener('resize', resizeCanvas);
+resizeCanvas();
+
+class CozyParticle {
+  constructor(x, y, isHeart = false) {
+    this.x = x || Math.random() * fxCanvas.width;
+    this.y = y || Math.random() * fxCanvas.height;
+    this.vx = (Math.random() - 0.5) * 40;
+    this.vy = -(15 + Math.random() * 35);
+    this.size = isHeart ? (12 + Math.random() * 10) : (2 + Math.random() * 4);
+    this.color = isHeart ? ['#f472b6', '#fb7185', '#fda4af'][Math.floor(Math.random() * 3)] : '#fcd34d';
+    this.alpha = 0.8;
+    this.life = isHeart ? 1.8 : (3 + Math.random() * 4);
+    this.maxLife = this.life;
+    this.isHeart = isHeart;
+  }
+
+  update(dt) {
+    this.x += this.vx * dt;
+    this.y += this.vy * dt;
+    this.life -= dt;
+    this.alpha = Math.max(0, this.life / this.maxLife);
+  }
+
+  draw(c) {
+    c.save();
+    c.globalAlpha = this.alpha;
+    c.fillStyle = this.color;
+    if (this.isHeart) {
+      c.font = `${Math.floor(this.size)}px sans-serif`;
+      c.textAlign = 'center';
+      c.fillText('💖', this.x, this.y);
+    } else {
+      c.beginPath();
+      c.arc(this.x, this.y, this.size, 0, Math.PI * 2);
+      c.fill();
+    }
+    c.restore();
+  }
+}
+
+function spawnCelebrationHearts(count = 20) {
+  const cx = window.innerWidth / 2;
+  const cy = window.innerHeight / 2;
+  for (let i = 0; i < count; i++) {
+    const p = new CozyParticle(cx + (Math.random() - 0.5) * 400, cy + (Math.random() - 0.5) * 200, Math.random() < 0.6);
+    p.vx = (Math.random() - 0.5) * 220;
+    p.vy = -(60 + Math.random() * 160);
+    particles.push(p);
+  }
+}
+
+// Ambient particle spawner
+setInterval(() => {
+  if (particles.length < 35) {
+    particles.push(new CozyParticle());
+  }
+}, 300);
+
+let lastFxTime = performance.now();
+function fxLoop(now) {
+  const dt = Math.min((now - lastFxTime) / 1000, 0.1);
+  lastFxTime = now;
+
+  fxCtx.clearRect(0, 0, fxCanvas.width, fxCanvas.height);
+  for (let i = particles.length - 1; i >= 0; i--) {
+    const p = particles[i];
+    p.update(dt);
+    p.draw(fxCtx);
+    if (p.life <= 0) particles.splice(i, 1);
+  }
+  requestAnimationFrame(fxLoop);
+}
+requestAnimationFrame(fxLoop);
+
+/* ==========================================================================
+   GAME STATE & LOGIC
+   ========================================================================== */
+const TOTAL_ROUNDS = 10;
+
+let currentTheme = THEMES[0];
+let currentRound = 1;
+
+// Round Steps: 0: CHARACTER, 1: PLACE, 2: ACTION, 3: FEELING
+let stepIndex = 0;
+// Current chapter in-progress tokens:
+let currentChapter = {
+  character: null,
+  place: null,
+  action: null,
+  feeling: null
+};
+
+// All 10 completed chapters
+let completedChapters = [];
+
+// 4 active card options shown on screen
+let currentOptions = [];
+let selectedCardIndex = 0;
+
+// Screens DOM
+const themeScreen = document.getElementById('themeScreen');
+const builderScreen = document.getElementById('builderScreen');
+const storybookScreen = document.getElementById('storybookScreen');
+
+// Stage Elements
+const roundCounterText = document.getElementById('roundCounterText');
+const turnAnnouncerBadge = document.getElementById('turnAnnouncerBadge');
+const turnPlayerIcon = document.getElementById('turnPlayerIcon');
+const turnPlayerName = document.getElementById('turnPlayerName');
+const stageThemeTag = document.getElementById('stageThemeTag');
+const stageSentenceContent = document.getElementById('stageSentenceContent');
+const choiceCategoryLabel = document.getElementById('choiceCategoryLabel');
+const cardsGrid = document.getElementById('cardsGrid');
+
+// Scene & Comic Strip DOM elements
+const promptIcon = document.getElementById('promptIcon');
+const promptText = document.getElementById('promptText');
+const sceneBackdrop = document.getElementById('sceneBackdrop');
+const decorLeft = document.getElementById('decorLeft');
+const decorRight = document.getElementById('decorRight');
+const actorChar = document.getElementById('actorChar');
+const actorActionBubble = document.getElementById('actorActionBubble');
+const actorFeelingHeart = document.getElementById('actorFeelingHeart');
+const comicStripSection = document.getElementById('comicStripSection');
+const comicCountBadge = document.getElementById('comicCountBadge');
+const comicPanelsGrid = document.getElementById('comicPanelsGrid');
+const roundTransitionOverlay = document.getElementById('roundTransitionOverlay');
+const transTitle = document.getElementById('transTitle');
+const transSub = document.getElementById('transSub');
+
+// 10 Whimsical Chapter Prompts
+const CHAPTER_PROMPTS = [
+  { chap: 1, title: 'The Story Begins', icon: '🌅', desc: 'A curious soul takes their first step...' },
+  { chap: 2, title: 'A Hidden Path', icon: '🌿', desc: 'Wandering deeper into an enchanted realm...' },
+  { chap: 3, title: 'A Sudden Spark', icon: '✨', desc: 'Something dazzling glimmers nearby...' },
+  { chap: 4, title: 'The Sunny Meadow', icon: '☀️', desc: 'Warm golden light fills the world with joy...' },
+  { chap: 5, title: 'A Secret Discovered', icon: '🗝️', desc: 'Unwrapping a sweet, tender secret...' },
+  { chap: 6, title: 'Whimsical Winds', icon: '🍃', desc: 'A gentle breeze whispers a playful tune...' },
+  { chap: 7, title: 'A Warm Friendship', icon: '🤝', desc: 'Two hearts beating in harmony...' },
+  { chap: 8, title: 'Twilight Glow', icon: '🌙', desc: 'Pastel stars awaken across the sky...' },
+  { chap: 9, title: 'A Leap of Courage', icon: '💫', desc: 'Taking a brave breath together...' },
+  { chap: 10, title: 'Happily Ever After', icon: '💖', desc: 'The heartwarming, magical finale!' }
+];
+
+/* Which player takes which step in the current round */
+function getActivePlayer() {
+  // Step 0: Player 1 (Blue) - Character
+  // Step 1: Player 2 (Red)  - Place
+  // Step 2: Player 1 (Blue) - Action
+  // Step 3: Player 2 (Red)  - Feeling
+  return (stepIndex === 0 || stepIndex === 2) ? 1 : 2;
+}
+
+/* ==========================================================================
+   START / INIT FUNCTIONS
+   ========================================================================== */
+function initThemeScreen() {
+  const themeGrid = document.getElementById('themeGrid');
+  themeGrid.innerHTML = '';
+
+  THEMES.forEach(t => {
+    const card = document.createElement('div');
+    card.className = 'theme-card';
+    card.innerHTML = `
+      <div class="theme-icon">${t.icon}</div>
+      <div class="theme-title">${t.title}</div>
+      <div class="theme-desc">${t.desc}</div>
+    `;
+    card.addEventListener('click', () => {
+      audio.init();
+      audio.playPick();
+      startStory(t);
+    });
+    themeGrid.appendChild(card);
+  });
+}
+
+function startStory(theme) {
+  currentTheme = theme;
+  currentRound = 1;
+  stepIndex = 0;
+  completedChapters = [];
+  currentChapter = { character: null, place: null, action: null, feeling: null };
+
+  if (comicPanelsGrid) comicPanelsGrid.innerHTML = '';
+  if (comicStripSection) comicStripSection.style.display = 'none';
+  if (comicCountBadge) comicCountBadge.textContent = '0 Chapters Written';
+
+  themeScreen.style.display = 'none';
+  storybookScreen.style.display = 'none';
+  builderScreen.style.display = 'flex';
+
+  stageThemeTag.textContent = `${currentTheme.icon} ${currentTheme.title} Tale`;
+  loadStep();
+}
+
+function loadStep() {
+  selectedCardIndex = 0;
+  const activePlayer = getActivePlayer();
+
+  // Update Turn Announcer Badge
+  turnAnnouncerBadge.className = `turn-announcer ${activePlayer === 1 ? 'turn-p1' : 'turn-p2'}`;
+  turnPlayerIcon.textContent = activePlayer === 1 ? '🔷' : '🔶';
+  turnPlayerName.textContent = activePlayer === 1 ? "PLAYER 1'S TURN (BLUE)" : "PLAYER 2'S TURN (RED)";
+
+  roundCounterText.textContent = `Chapter ${currentRound} of ${TOTAL_ROUNDS}`;
+
+  // When starting step 0 of a chapter, update the scene prompt and actors
+  if (stepIndex === 0) {
+    const prompt = CHAPTER_PROMPTS[(currentRound - 1) % CHAPTER_PROMPTS.length];
+    if (promptIcon) promptIcon.textContent = prompt.icon;
+    if (promptText) promptText.textContent = `Chapter ${currentRound}: ${prompt.title} — ${prompt.desc}`;
+    if (actorChar) {
+      actorChar.textContent = '❓';
+      actorChar.classList.remove('hop');
+    }
+    if (actorActionBubble) actorActionBubble.style.display = 'none';
+    if (actorFeelingHeart) actorFeelingHeart.style.display = 'none';
+    if (decorLeft) decorLeft.textContent = currentTheme.places[0]?.emoji || '🌲';
+    if (decorRight) decorRight.textContent = currentTheme.places[1]?.emoji || '🏔️';
+  }
+
+  // Step Category Names & Pools
+  let pool = [];
+  let categoryName = '';
+
+  if (stepIndex === 0) {
+    categoryName = 'Player 1 (Blue): Pick a Character';
+    pool = currentTheme.chars;
+  } else if (stepIndex === 1) {
+    categoryName = 'Player 2 (Red): Pick a Place';
+    pool = currentTheme.places;
+  } else if (stepIndex === 2) {
+    categoryName = 'Player 1 (Blue): Pick an Action';
+    pool = SHARED_ACTIONS;
+  } else if (stepIndex === 3) {
+    categoryName = 'Player 2 (Red): Pick a Feeling';
+    pool = SHARED_FEELINGS;
+  }
+
+  choiceCategoryLabel.textContent = categoryName;
+
+  // Pick 4 unique cards from the pool
+  const shuffled = [...pool].sort(() => 0.5 - Math.random());
+  currentOptions = shuffled.slice(0, 4);
+
+  renderStageSentence();
+  renderChoiceCards();
+}
+
+function renderStageSentence() {
+  stageSentenceContent.innerHTML = '';
+
+  // Slot 1: Character
+  if (currentChapter.character) {
+    stageSentenceContent.appendChild(createTokenChip(currentChapter.character, 'chip-char'));
+  } else {
+    stageSentenceContent.appendChild(createEmptySlot('Character...'));
+  }
+
+  // Preposition
+  const prep1 = document.createElement('span');
+  prep1.textContent = 'went to';
+  stageSentenceContent.appendChild(prep1);
+
+  // Slot 2: Place
+  if (currentChapter.place) {
+    stageSentenceContent.appendChild(createTokenChip(currentChapter.place, 'chip-place'));
+  } else {
+    stageSentenceContent.appendChild(createEmptySlot('Place...'));
+  }
+
+  // Conjunction
+  const prep2 = document.createElement('span');
+  prep2.textContent = 'and was';
+  stageSentenceContent.appendChild(prep2);
+
+  // Slot 3: Action
+  if (currentChapter.action) {
+    stageSentenceContent.appendChild(createTokenChip(currentChapter.action, 'chip-act'));
+  } else {
+    stageSentenceContent.appendChild(createEmptySlot('Action...'));
+  }
+
+  // Comma & feeling
+  const prep3 = document.createElement('span');
+  prep3.textContent = 'feeling';
+  stageSentenceContent.appendChild(prep3);
+
+  // Slot 4: Feeling
+  if (currentChapter.feeling) {
+    stageSentenceContent.appendChild(createTokenChip(currentChapter.feeling, 'chip-feel'));
+  } else {
+    stageSentenceContent.appendChild(createEmptySlot('Feeling...'));
+  }
+}
+
+function createTokenChip(item, cssClass) {
+  const chip = document.createElement('span');
+  chip.className = `token-chip ${cssClass}`;
+  chip.innerHTML = `<span>${item.emoji}</span> <span>${item.word}</span>`;
+  return chip;
+}
+
+function createEmptySlot(label) {
+  const slot = document.createElement('span');
+  slot.className = 'empty-slot';
+  slot.textContent = label;
+  return slot;
+}
+
+function renderChoiceCards() {
+  cardsGrid.innerHTML = '';
+  const activePlayer = getActivePlayer();
+
+  currentOptions.forEach((opt, idx) => {
+    const card = document.createElement('div');
+    const isSelected = (idx === selectedCardIndex);
+    const selectClass = isSelected ? (activePlayer === 1 ? 'selected-p1' : 'selected-p2') : '';
+
+    card.className = `choice-card ${selectClass}`;
+    card.innerHTML = `
+      <div class="card-emoji">${opt.emoji}</div>
+      <div class="card-word">${opt.word}</div>
+      <div class="card-key-badge">${idx + 1}</div>
+    `;
+
+    card.addEventListener('click', () => {
+      audio.init();
+      selectedCardIndex = idx;
+      confirmChoice();
+    });
+
+    cardsGrid.appendChild(card);
+  });
+}
+
+function updateCardHighlight() {
+  const activePlayer = getActivePlayer();
+  const cardEls = cardsGrid.querySelectorAll('.choice-card');
+  cardEls.forEach((card, idx) => {
+    card.classList.remove('selected-p1', 'selected-p2');
+    if (idx === selectedCardIndex) {
+      card.classList.add(activePlayer === 1 ? 'selected-p1' : 'selected-p2');
+    }
+  });
+}
+
+function confirmChoice() {
+  const chosen = currentOptions[selectedCardIndex];
+  if (!chosen) return;
+
+  audio.playPick();
+
+  if (stepIndex === 0) {
+    currentChapter.character = chosen;
+    if (actorChar) {
+      actorChar.textContent = chosen.emoji;
+      actorChar.classList.remove('hop');
+      void actorChar.offsetWidth;
+      actorChar.classList.add('hop');
+    }
+  } else if (stepIndex === 1) {
+    currentChapter.place = chosen;
+    if (decorLeft) decorLeft.textContent = chosen.emoji;
+    if (decorRight) {
+      const alt = currentTheme.places.find(p => p.emoji !== chosen.emoji);
+      decorRight.textContent = alt ? alt.emoji : chosen.emoji;
+    }
+  } else if (stepIndex === 2) {
+    currentChapter.action = chosen;
+    if (actorActionBubble) {
+      actorActionBubble.textContent = chosen.emoji;
+      actorActionBubble.style.display = 'block';
+    }
+  } else if (stepIndex === 3) {
+    currentChapter.feeling = chosen;
+    if (actorFeelingHeart) {
+      actorFeelingHeart.textContent = chosen.emoji;
+      actorFeelingHeart.style.display = 'block';
+    }
+    spawnCelebrationHearts(18);
+  }
+
+  renderStageSentence();
+
+  stepIndex++;
+  if (stepIndex > 3) {
+    // Completed this Chapter!
+    completeChapter();
+  } else {
+    setTimeout(() => {
+      loadStep();
+    }, 280);
+  }
+}
+
+function completeChapter() {
+  audio.playChapterComplete();
+  spawnCelebrationHearts(32);
+
+  // Record completed chapter
+  const finishedChap = {
+    round: currentRound,
+    ...currentChapter
+  };
+  completedChapters.push(finishedChap);
+
+  // Append to Real-Time Growing Comic Strip
+  if (comicPanelsGrid) {
+    const panel = document.createElement('div');
+    panel.className = 'comic-panel-card';
+    panel.innerHTML = `
+      <div class="panel-header-row">
+        <span class="panel-chap-tag">Chapter ${finishedChap.round}</span>
+        <div class="panel-icons-row">
+          <span>${finishedChap.character.emoji}</span>
+          <span>${finishedChap.place.emoji}</span>
+          <span>${finishedChap.action.emoji}</span>
+          <span>${finishedChap.feeling.emoji}</span>
+        </div>
+      </div>
+      <div class="panel-prose-text">
+        Once upon a time, <strong>${finishedChap.character.word}</strong> traveled to <strong>${finishedChap.place.word}</strong>, delightfully <strong>${finishedChap.action.word.toLowerCase()}</strong>, feeling deeply <strong>${finishedChap.feeling.word.toLowerCase()}</strong>.
+      </div>
+    `;
+    comicPanelsGrid.appendChild(panel);
+    if (comicStripSection) comicStripSection.style.display = 'block';
+    if (comicCountBadge) comicCountBadge.textContent = `${completedChapters.length} of ${TOTAL_ROUNDS} Chapters Written`;
+  }
+
+  // Show Fun Round Transition Overlay
+  if (roundTransitionOverlay && transTitle && transSub) {
+    transTitle.textContent = `Chapter ${currentRound} Complete! ✨`;
+    transSub.textContent = `"${currentChapter.character.emoji} ${currentChapter.place.emoji} ${currentChapter.action.emoji} ${currentChapter.feeling.emoji}" woven into your story! Turning page... 📖`;
+    roundTransitionOverlay.classList.add('active');
+    setTimeout(() => {
+      roundTransitionOverlay.classList.remove('active');
+    }, 1100);
+  }
+
+  currentRound++;
+  stepIndex = 0;
+  currentChapter = { character: null, place: null, action: null, feeling: null };
+
+  if (currentRound > TOTAL_ROUNDS) {
+    // All 10 Chapters Finished! Grand Storybook Reveal!
+    setTimeout(() => {
+      showFinalStorybook();
+    }, 1300);
+  } else {
+    // Next Chapter transition
+    setTimeout(() => {
+      loadStep();
+    }, 1300);
+  }
+}
+
+/* ==========================================================================
+   FINAL STORYBOOK REVEAL & EXPORT
+   ========================================================================== */
+function showFinalStorybook() {
+  builderScreen.style.display = 'none';
+  storybookScreen.style.display = 'flex';
+
+  document.getElementById('bookThemeEmblem').textContent = currentTheme.icon;
+  document.getElementById('bookMainTitle').textContent = `The Chronicles of ${currentTheme.title}`;
+
+  const chaptersList = document.getElementById('bookChaptersList');
+  chaptersList.innerHTML = '';
+
+  completedChapters.forEach((ch, idx) => {
+    const item = document.createElement('div');
+    item.className = 'chapter-item';
+    item.innerHTML = `
+      <div class="chapter-number">${idx + 1}.</div>
+      <div class="chapter-content">
+        <div class="chapter-icons-row">
+          <span>${ch.character.emoji}</span>
+          <span>${ch.place.emoji}</span>
+          <span>${ch.action.emoji}</span>
+          <span>${ch.feeling.emoji}</span>
+        </div>
+        <div class="chapter-prose">
+          Once upon a time, <strong>${ch.character.word}</strong> traveled to the <strong>${ch.place.word}</strong>, delightfully <strong>${ch.action.word.toLowerCase()}</strong>, feeling deeply <strong>${ch.feeling.word.toLowerCase()}</strong>.
+        </div>
+      </div>
+    `;
+    chaptersList.appendChild(item);
+  });
+
+  spawnCelebrationHearts(40);
+}
+
+// Print / Save Story
+document.getElementById('saveStoryBtn').addEventListener('click', () => {
+  window.print();
+});
+
+// New Story / Play Again
+document.getElementById('playAgainBtn').addEventListener('click', () => {
+  storybookScreen.style.display = 'none';
+  themeScreen.style.display = 'flex';
+});
+
+document.getElementById('newStoryNavBtn').addEventListener('click', () => {
+  builderScreen.style.display = 'none';
+  storybookScreen.style.display = 'none';
+  themeScreen.style.display = 'flex';
+});
+
+/* ==========================================================================
+   KEYBOARD NAVIGATION & INPUT (Ghost-Free Simultaneous)
+   ========================================================================== */
+window.addEventListener('keydown', (e) => {
+  audio.init();
+
+  // If in builder screen
+  if (builderScreen.style.display === 'flex') {
+    const activePlayer = getActivePlayer();
+
+    // Player 1 controls (Blue): Arrow Left/Right to select, Space to confirm
+    if (activePlayer === 1) {
+      if (e.code === 'ArrowLeft') {
+        e.preventDefault();
+        selectedCardIndex = (selectedCardIndex - 1 + 4) % 4;
+        audio.playCardTap();
+        updateCardHighlight();
+      } else if (e.code === 'ArrowRight') {
+        e.preventDefault();
+        selectedCardIndex = (selectedCardIndex + 1) % 4;
+        audio.playCardTap();
+        updateCardHighlight();
+      } else if (e.code === 'Space') {
+        e.preventDefault();
+        confirmChoice();
+      }
+    }
+    // Player 2 controls (Red): A/D to select, Enter to confirm
+    else if (activePlayer === 2) {
+      if (e.code === 'KeyA') {
+        e.preventDefault();
+        selectedCardIndex = (selectedCardIndex - 1 + 4) % 4;
+        audio.playCardTap();
+        updateCardHighlight();
+      } else if (e.code === 'KeyD') {
+        e.preventDefault();
+        selectedCardIndex = (selectedCardIndex + 1) % 4;
+        audio.playCardTap();
+        updateCardHighlight();
+      } else if (e.code === 'Enter') {
+        e.preventDefault();
+        confirmChoice();
+      }
+    }
+
+    // Number keys 1-4 for quick selection
+    if (['Digit1', 'Digit2', 'Digit3', 'Digit4'].includes(e.code)) {
+      selectedCardIndex = parseInt(e.code.replace('Digit', '')) - 1;
+      audio.playCardTap();
+      updateCardHighlight();
+    }
+  }
+
+  // Quick mute shortcut
+  if (e.code === 'KeyM') {
+    audio.toggleMusic();
+  }
+});
+
+// Initialize on Load
+initThemeScreen();
+
+</script>
+</body>
+</html>

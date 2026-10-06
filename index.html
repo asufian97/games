@@ -1,0 +1,788 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>Dual Arcade: 2-Player Shared Keyboard Games</title>
+<meta name="description" content="The ultimate collection of 10 handcrafted, 2-player competitive and cooperative arcade games playable together on one shared keyboard!">
+<style>
+  :root {
+    --bg-dark: #070b14;
+    --bg-card: rgba(15, 23, 42, 0.75);
+    --border-card: rgba(255, 255, 255, 0.1);
+    --p1-blue: #0ea5e9;
+    --p1-light: #7dd3fc;
+    --p2-red: #f43f5e;
+    --p2-light: #fda4af;
+    --accent-purple: #8b5cf6;
+    --accent-gold: #facc15;
+    --text-main: #f8fafc;
+    --text-muted: #94a3b8;
+    --font: "Segoe UI Black", "Arial Black", "Trebuchet MS", system-ui, sans-serif;
+  }
+
+  * {
+    box-sizing: border-box;
+    margin: 0;
+    padding: 0;
+    user-select: none;
+    -webkit-user-select: none;
+  }
+
+  body {
+    background: radial-gradient(circle at 50% 10%, #0f172a 0%, #070b14 60%, #03060a 100%);
+    color: var(--text-main);
+    font-family: var(--font);
+    min-height: 100vh;
+    overflow-x: hidden;
+  }
+
+  /* Ambient Animated Glow in Background */
+  .ambient-glow {
+    position: fixed;
+    width: 600px;
+    height: 600px;
+    border-radius: 50%;
+    filter: blur(140px);
+    pointer-events: none;
+    z-index: 0;
+    opacity: 0.18;
+  }
+  .glow-1 { top: -100px; left: -100px; background: var(--p1-blue); }
+  .glow-2 { bottom: -100px; right: -100px; background: var(--p2-red); }
+
+  /* Header Section */
+  header {
+    position: relative;
+    z-index: 10;
+    padding: 40px 24px 24px;
+    text-align: center;
+    max-width: 1200px;
+    margin: 0 auto;
+  }
+
+  .brand-badge {
+    display: inline-flex;
+    align-items: center;
+    gap: 8px;
+    padding: 6px 16px;
+    background: rgba(255, 255, 255, 0.06);
+    border: 1px solid rgba(255, 255, 255, 0.12);
+    border-radius: 999px;
+    font-size: 13px;
+    color: var(--accent-gold);
+    letter-spacing: 1px;
+    margin-bottom: 16px;
+    text-transform: uppercase;
+  }
+
+  h1 {
+    font-size: clamp(34px, 5vw, 54px);
+    line-height: 1.1;
+    margin-bottom: 14px;
+    background: linear-gradient(135deg, #ffffff 30%, var(--p1-light) 65%, var(--p2-light) 100%);
+    -webkit-background-clip: text;
+    -webkit-text-fill-color: transparent;
+  }
+
+  p.subtitle {
+    font-size: 16px;
+    color: var(--text-muted);
+    max-width: 680px;
+    margin: 0 auto 28px;
+    font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, sans-serif;
+    line-height: 1.5;
+  }
+
+  /* Controls Banner Bar */
+  .shared-controls-bar {
+    display: inline-flex;
+    flex-wrap: wrap;
+    align-items: center;
+    justify-content: center;
+    gap: 20px;
+    background: rgba(15, 23, 42, 0.8);
+    border: 1px solid rgba(255, 255, 255, 0.12);
+    padding: 12px 24px;
+    border-radius: 16px;
+    box-shadow: 0 8px 32px rgba(0, 0, 0, 0.4);
+    margin-bottom: 30px;
+  }
+
+  .ctrl-group {
+    display: flex;
+    align-items: center;
+    gap: 10px;
+    font-size: 14px;
+  }
+
+  .ctrl-p1 { color: var(--p1-light); }
+  .ctrl-p2 { color: var(--p2-light); }
+
+  .keycap {
+    display: inline-flex;
+    align-items: center;
+    justify-content: center;
+    padding: 4px 10px;
+    background: rgba(255, 255, 255, 0.1);
+    border: 1px solid rgba(255, 255, 255, 0.25);
+    border-radius: 6px;
+    font-size: 12px;
+    font-weight: 900;
+    color: #fff;
+    box-shadow: 0 2px 0 rgba(0, 0, 0, 0.4);
+  }
+
+  /* Filters & Search Toolbar */
+  .toolbar {
+    display: flex;
+    flex-wrap: wrap;
+    align-items: center;
+    justify-content: space-between;
+    gap: 16px;
+    max-width: 1240px;
+    margin: 0 auto 32px;
+    padding: 0 24px;
+    position: relative;
+    z-index: 10;
+  }
+
+  .filter-tabs {
+    display: flex;
+    gap: 8px;
+    flex-wrap: wrap;
+  }
+
+  .filter-btn {
+    padding: 10px 18px;
+    border-radius: 12px;
+    border: 1px solid rgba(255, 255, 255, 0.1);
+    background: rgba(15, 23, 42, 0.7);
+    color: var(--text-muted);
+    font-size: 14px;
+    font-weight: 700;
+    cursor: pointer;
+    transition: all 0.2s ease;
+  }
+
+  .filter-btn:hover, .filter-btn.active {
+    color: #fff;
+    background: rgba(14, 165, 233, 0.25);
+    border-color: var(--p1-blue);
+    transform: translateY(-2px);
+  }
+
+  .random-btn {
+    padding: 10px 20px;
+    border-radius: 12px;
+    border: 1px solid rgba(250, 204, 21, 0.4);
+    background: linear-gradient(135deg, rgba(250, 204, 21, 0.2), rgba(245, 158, 11, 0.1));
+    color: var(--accent-gold);
+    font-size: 14px;
+    font-weight: 800;
+    cursor: pointer;
+    transition: all 0.2s ease;
+    display: inline-flex;
+    align-items: center;
+    gap: 8px;
+  }
+  .random-btn:hover {
+    background: linear-gradient(135deg, rgba(250, 204, 21, 0.4), rgba(245, 158, 11, 0.2));
+    transform: translateY(-2px);
+    box-shadow: 0 8px 24px rgba(250, 204, 21, 0.25);
+  }
+
+  /* Games Grid */
+  .games-grid {
+    display: grid;
+    grid-template-columns: repeat(auto-fill, minmax(360px, 1fr));
+    gap: 28px;
+    max-width: 1240px;
+    margin: 0 auto 60px;
+    padding: 0 24px;
+    position: relative;
+    z-index: 10;
+  }
+
+  .game-card {
+    background: var(--bg-card);
+    border: 1px solid var(--border-card);
+    border-radius: 20px;
+    overflow: hidden;
+    display: flex;
+    flex-direction: column;
+    transition: all 0.3s cubic-bezier(0.16, 1, 0.3, 1);
+    box-shadow: 0 10px 30px rgba(0, 0, 0, 0.4);
+    cursor: pointer;
+  }
+
+  .game-card:hover {
+    transform: translateY(-8px);
+    border-color: rgba(255, 255, 255, 0.3);
+    box-shadow: 0 20px 50px rgba(0, 0, 0, 0.6), 0 0 30px var(--glow-color, rgba(14, 165, 233, 0.3));
+  }
+
+  .card-banner {
+    height: 190px;
+    position: relative;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    overflow: hidden;
+    background-size: cover;
+    background-position: center;
+  }
+
+  .banner-overlay {
+    position: absolute;
+    inset: 0;
+    background: linear-gradient(180deg, rgba(0,0,0,0.1) 0%, rgba(15, 23, 42, 0.95) 100%);
+  }
+
+  .banner-icon {
+    font-size: 72px;
+    filter: drop-shadow(0 10px 20px rgba(0,0,0,0.6));
+    z-index: 2;
+    transition: transform 0.3s ease;
+  }
+  .game-card:hover .banner-icon {
+    transform: scale(1.15) rotate(-3deg);
+  }
+
+  .category-badge {
+    position: absolute;
+    top: 14px;
+    left: 16px;
+    z-index: 3;
+    padding: 4px 12px;
+    border-radius: 999px;
+    font-size: 11px;
+    font-weight: 800;
+    text-transform: uppercase;
+    background: rgba(0, 0, 0, 0.6);
+    backdrop-filter: blur(8px);
+    border: 1px solid rgba(255, 255, 255, 0.2);
+    color: #fff;
+  }
+
+  .play-badge {
+    position: absolute;
+    top: 14px;
+    right: 16px;
+    z-index: 3;
+    width: 38px;
+    height: 38px;
+    border-radius: 50%;
+    background: rgba(255, 255, 255, 0.15);
+    backdrop-filter: blur(8px);
+    border: 1px solid rgba(255, 255, 255, 0.3);
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    font-size: 16px;
+    transition: all 0.3s ease;
+  }
+  .game-card:hover .play-badge {
+    background: #fff;
+    color: #000;
+    transform: scale(1.12);
+  }
+
+  .card-body {
+    padding: 20px 24px;
+    flex: 1;
+    display: flex;
+    flex-direction: column;
+  }
+
+  .card-title {
+    font-size: 22px;
+    margin-bottom: 8px;
+    color: #fff;
+  }
+
+  .card-desc {
+    font-size: 14px;
+    color: var(--text-muted);
+    font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, sans-serif;
+    line-height: 1.5;
+    margin-bottom: 18px;
+    flex: 1;
+  }
+
+  .card-footer {
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    padding-top: 16px;
+    border-top: 1px solid rgba(255, 255, 255, 0.08);
+  }
+
+  .ctrl-mini {
+    display: flex;
+    gap: 8px;
+    font-size: 11px;
+    color: var(--text-muted);
+  }
+
+  .play-link {
+    display: inline-flex;
+    align-items: center;
+    gap: 6px;
+    padding: 8px 18px;
+    background: linear-gradient(135deg, var(--p1-blue), #2563eb);
+    color: #fff;
+    border-radius: 10px;
+    font-size: 13px;
+    font-weight: 800;
+    text-decoration: none;
+    transition: all 0.2s ease;
+  }
+  .play-link:hover {
+    background: linear-gradient(135deg, #38bdf8, var(--p1-blue));
+    transform: translateY(-2px);
+    box-shadow: 0 4px 16px rgba(14, 165, 233, 0.4);
+  }
+
+  /* Full-Screen Embedded Game Modal Overlay */
+  #game-modal {
+    position: fixed;
+    inset: 0;
+    z-index: 1000;
+    background: rgba(2, 6, 14, 0.96);
+    backdrop-filter: blur(12px);
+    display: none;
+    flex-direction: column;
+    align-items: center;
+    justify-content: center;
+  }
+
+  #game-modal.active {
+    display: flex;
+  }
+
+  .modal-header {
+    width: 100%;
+    max-width: 1320px;
+    padding: 14px 24px;
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    gap: 16px;
+  }
+
+  .modal-title-group {
+    display: flex;
+    align-items: center;
+    gap: 14px;
+  }
+
+  .back-btn {
+    display: inline-flex;
+    align-items: center;
+    gap: 8px;
+    padding: 10px 18px;
+    border-radius: 12px;
+    background: rgba(255, 255, 255, 0.12);
+    border: 1px solid rgba(255, 255, 255, 0.2);
+    color: #fff;
+    font-size: 14px;
+    font-weight: 800;
+    cursor: pointer;
+    transition: all 0.2s ease;
+  }
+  .back-btn:hover {
+    background: rgba(255, 255, 255, 0.25);
+    transform: translateX(-3px);
+  }
+
+  .modal-game-name {
+    font-size: 20px;
+    color: #fff;
+  }
+
+  .modal-actions {
+    display: flex;
+    align-items: center;
+    gap: 10px;
+  }
+
+  .modal-tool-btn {
+    padding: 8px 14px;
+    border-radius: 10px;
+    background: rgba(255, 255, 255, 0.08);
+    border: 1px solid rgba(255, 255, 255, 0.15);
+    color: #fff;
+    font-size: 13px;
+    font-weight: 700;
+    cursor: pointer;
+    text-decoration: none;
+    display: inline-flex;
+    align-items: center;
+    gap: 6px;
+    transition: all 0.2s ease;
+  }
+  .modal-tool-btn:hover {
+    background: rgba(255, 255, 255, 0.2);
+  }
+
+  .iframe-wrapper {
+    position: relative;
+    width: calc(100vw - 32px);
+    height: calc(100vh - 90px);
+    max-width: 1320px;
+    max-height: 860px;
+    border-radius: 16px;
+    overflow: hidden;
+    box-shadow: 0 20px 60px rgba(0, 0, 0, 0.9), 0 0 0 2px rgba(255, 255, 255, 0.1);
+    background: #000;
+  }
+
+  iframe {
+    width: 100%;
+    height: 100%;
+    border: none;
+    display: block;
+  }
+
+  /* Footer */
+  footer {
+    text-align: center;
+    padding: 30px 20px 40px;
+    color: var(--text-muted);
+    font-size: 13px;
+    font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, sans-serif;
+  }
+</style>
+</head>
+<body>
+
+<div class="ambient-glow glow-1"></div>
+<div class="ambient-glow glow-2"></div>
+
+<header>
+  <div class="brand-badge">⚡ 2 Players • One Shared Keyboard</div>
+  <h1>DUAL ARCADE</h1>
+  <p class="subtitle">A premier suite of 12 handcrafted, 2-player competitive and cooperative browser games. Sit side-by-side, grab the keyboard, and battle for victory!</p>
+
+  <div class="shared-controls-bar">
+    <div class="ctrl-group ctrl-p1">
+      <span>🔷 <strong>PLAYER 1 (Left):</strong></span>
+      <span class="keycap">W</span>
+      <span class="keycap">A</span>
+      <span class="keycap">S</span>
+      <span class="keycap">D</span>
+      <span>+</span>
+      <span class="keycap">SPACE</span>
+    </div>
+    <div style="color: rgba(255,255,255,0.2);">|</div>
+    <div class="ctrl-group ctrl-p2">
+      <span>🔶 <strong>PLAYER 2 (Right):</strong></span>
+      <span class="keycap">↑</span>
+      <span class="keycap">←</span>
+      <span class="keycap">↓</span>
+      <span class="keycap">→</span>
+      <span>+</span>
+      <span class="keycap">ENTER</span>
+    </div>
+  </div>
+</header>
+
+<section class="toolbar">
+  <div class="filter-tabs">
+    <button class="filter-btn active" data-filter="all">All Games (12)</button>
+    <button class="filter-btn" data-filter="coop">Co-Op & Story</button>
+    <button class="filter-btn" data-filter="strategy">Tactical & Strategy</button>
+    <button class="filter-btn" data-filter="action">Action & Physics</button>
+    <button class="filter-btn" data-filter="puzzle">Puzzle & Timing</button>
+  </div>
+  <button class="random-btn" id="randomGameBtn">🎲 Random Game</button>
+</section>
+
+<main class="games-grid" id="gamesGrid">
+  <!-- Cards populated dynamically via JavaScript -->
+</main>
+
+<!-- In-Page Full Game Modal -->
+<div id="game-modal" role="dialog" aria-modal="true">
+  <div class="modal-header">
+    <div class="modal-title-group">
+      <button class="back-btn" id="closeModalBtn" title="Press Esc to return">
+        <span>←</span> ARCADE HUB
+      </button>
+      <h2 class="modal-game-name" id="modalGameTitle">Game Name</h2>
+    </div>
+    <div class="modal-actions">
+      <button class="modal-tool-btn" id="reloadGameBtn" title="Restart Game">🔄 Restart</button>
+      <a class="modal-tool-btn" id="openNewTabBtn" href="#" target="_blank" title="Open in dedicated tab">↗ Open in Tab</a>
+    </div>
+  </div>
+  <div class="iframe-wrapper">
+    <iframe id="gameIframe" src="about:blank" title="Game Player" allow="autoplay"></iframe>
+  </div>
+</div>
+
+<footer>
+  Dual Arcade &copy; 2026 • Handcrafted with Vanilla HTML5 Canvas & Web Audio API
+</footer>
+
+<script>
+'use strict';
+
+/* ==========================================================================
+   GAME METADATA DIRECTORY (ALL 12 HANDCRAFTED GAMES)
+   ========================================================================== */
+const GAMES = [
+  {
+    id: 'maze_escape',
+    title: 'Dual Maze: Co-Op Escape',
+    category: 'coop',
+    categoryName: 'Co-Op Maze',
+    icon: '🌀',
+    desc: 'Two players control ONE single character together! Player 1 moves horizontally (A/D), Player 2 moves vertically (Up/Down). Dodge traps, find keys, and escape all 5 themed labyrinths.',
+    path: './maze_escape/index.html',
+    bg: 'linear-gradient(135deg, #064e3b, #0f172a)',
+    glow: 'rgba(56, 189, 248, 0.45)',
+    tags: 'Co-Op • Shared Control • 5 Levels'
+  },
+  {
+    id: 'story_builder',
+    title: 'Our Storybook: Co-Op Tale',
+    category: 'coop',
+    categoryName: 'Co-Op Story',
+    icon: '📖',
+    desc: 'Weave a 10-chapter heartwarming tale together! Take turns picking characters, magical places, actions, and tender feelings with calming harp music.',
+    path: './story_builder/index.html',
+    bg: 'linear-gradient(135deg, #fef3c7, #fed7aa)',
+    glow: 'rgba(217, 119, 6, 0.4)',
+    tags: 'Co-Op • Visual Story • Calming'
+  },
+  {
+    id: 'battleship',
+    title: 'Battleship: Naval Clash',
+    category: 'strategy',
+    categoryName: 'Strategy',
+    icon: '🚢',
+    desc: 'Classic naval warfare. Secretly deploy your 5-ship fleet, pass the device, and fire torpedoes with radar sonar and explosive hits!',
+    path: './battleship/index.html',
+    bg: 'linear-gradient(135deg, #091a32, #040d1a)',
+    glow: 'rgba(14, 165, 233, 0.4)',
+    tags: 'Tactical • Sonar • Fog of War'
+  },
+  {
+    id: 'balloon_pop',
+    title: 'Balloon Pop Party',
+    category: 'action',
+    categoryName: 'Action',
+    icon: '🎈',
+    desc: 'Fly your needle copters and pop rising balloons in a 60-second frenzy! Grab Stars for 2X points, Lightning for hyper speed, and Bombs for screen wipes.',
+    path: './balloon_pop/index.html',
+    bg: 'linear-gradient(135deg, #0284c7, #38bdf8)',
+    glow: 'rgba(56, 189, 248, 0.4)',
+    tags: 'Fast-Paced • Power-Ups • 60s Blitz'
+  },
+  {
+    id: 'block_stack',
+    title: 'Tower Clash: Block Stacking',
+    category: 'puzzle',
+    categoryName: 'Timing',
+    icon: '🏗️',
+    desc: 'Take turns dropping sliding blocks on top of each other. Overhangs are cleanly sliced off—tower gets narrower! 3 lives each, last one standing wins.',
+    path: './block_stack/index.html',
+    bg: 'linear-gradient(135deg, #1e1b4b, #0f172a)',
+    glow: 'rgba(139, 92, 246, 0.4)',
+    tags: 'Precision • Slice Physics • 3 Lives'
+  },
+  {
+    id: 'farm_pen',
+    title: 'Farm Pen: Block & Save',
+    category: 'puzzle',
+    categoryName: 'Puzzle',
+    icon: '🐥',
+    desc: 'Cozy Sokoban block-pusher puzzle. Push wooden crates across a 10x10 farm to build walls and funnels, guiding wandering yellow chicks into your pen!',
+    path: './farm_pen/index.html',
+    bg: 'linear-gradient(135deg, #1c3322, #0d1c12)',
+    glow: 'rgba(34, 197, 94, 0.4)',
+    tags: 'Cozy • Sokoban • Pet Rescue'
+  },
+  {
+    id: 'fence_duel',
+    title: 'The Great Fence Duel',
+    category: 'strategy',
+    categoryName: 'Board Game',
+    icon: '🐑',
+    desc: 'Quoridor-inspired turn-based strategic board game. Walk your sheep to the opposing goal row or place wooden fence walls to trap and redirect your opponent!',
+    path: './fence_duel/index.html',
+    bg: 'linear-gradient(135deg, #1e3a24, #142819)',
+    glow: 'rgba(74, 222, 128, 0.4)',
+    tags: 'Turn-Based • Quoridor • Pathfinding'
+  },
+  {
+    id: 'pet_shield',
+    title: 'Pet Shield: Bee Defense',
+    category: 'action',
+    categoryName: 'Defense',
+    icon: '🐶',
+    desc: 'Save your puppy from bouncing physics bees! Control a floating wooden shield paddle to deflect the buzzing swarm toward your opponent.',
+    path: './pet_shield/index.html',
+    bg: 'linear-gradient(135deg, #2e1065, #170936)',
+    glow: 'rgba(234, 179, 8, 0.4)',
+    tags: 'Physics • Shield Slam • High Energy'
+  },
+  {
+    id: 'laser',
+    title: 'Laser Mirror Duel',
+    category: 'strategy',
+    categoryName: 'Strategy',
+    icon: '⚡',
+    desc: 'Real-time spatial optical battle. Run across the shared grid to rotate 45° diagonal mirrors, directing the pulsing central laser beam into enemy crystals!',
+    path: './laser/index.html',
+    bg: 'linear-gradient(135deg, #09090b, #18181b)',
+    glow: 'rgba(236, 72, 153, 0.4)',
+    tags: 'Laser Optics • Real-Time • Spatial'
+  },
+  {
+    id: 'sumo',
+    title: 'Sumo Bouncy Battle',
+    category: 'action',
+    categoryName: 'Physics',
+    icon: '🐼',
+    desc: 'Sumo wrestling on a slippery icy ring surrounded by water. Bump, dash-tackle, and push each other in an intense physics tug-of-war!',
+    path: './sumo/index.html',
+    bg: 'linear-gradient(135deg, #0f172a, #0284c7)',
+    glow: 'rgba(14, 165, 233, 0.4)',
+    tags: 'Ice Ring • Dash Tackle • Ring Out'
+  },
+  {
+    id: 'color_frenzy',
+    title: 'Color Frenzy Arena',
+    category: 'action',
+    categoryName: 'Action',
+    icon: '🎨',
+    desc: 'Fast-paced pinball sports battle. Kick colored balls, ricochet off bouncy bumpers, mix primary colors into secondary colors, and score into your bowl!',
+    path: './color_frenzy/index.html',
+    bg: 'linear-gradient(135deg, #120a2e, #2a1a5e)',
+    glow: 'rgba(168, 85, 247, 0.4)',
+    tags: 'Color Mixing • Kick Physics • Pinball'
+  },
+  {
+    id: 'color_bowl',
+    title: 'Color Bowl Match',
+    category: 'action',
+    categoryName: 'Arcade',
+    icon: '🥣',
+    desc: 'Vibrant competitive ball race! Race across the arena to gather matching target colored spheres and dunk them into your team goal.',
+    path: './color_bowl/index.html',
+    bg: 'linear-gradient(135deg, #172033, #090d16)',
+    glow: 'rgba(251, 113, 133, 0.4)',
+    tags: 'Ball Race • Fast Bumping • Dunk'
+  }
+];
+
+/* ==========================================================================
+   RENDER CARDS
+   ========================================================================== */
+const gamesGrid = document.getElementById('gamesGrid');
+const filterBtns = document.querySelectorAll('.filter-btn');
+const randomBtn = document.getElementById('randomGameBtn');
+
+// Modal Elements
+const modal = document.getElementById('game-modal');
+const modalIframe = document.getElementById('gameIframe');
+const modalTitle = document.getElementById('modalGameTitle');
+const closeModalBtn = document.getElementById('closeModalBtn');
+const reloadGameBtn = document.getElementById('reloadGameBtn');
+const openNewTabBtn = document.getElementById('openNewTabBtn');
+
+let currentActiveGame = null;
+
+function renderCards(filter = 'all') {
+  gamesGrid.innerHTML = '';
+
+  const filtered = GAMES.filter(g => filter === 'all' || g.category === filter);
+
+  filtered.forEach(game => {
+    const card = document.createElement('article');
+    card.className = 'game-card';
+    card.style.setProperty('--glow-color', game.glow);
+
+    card.innerHTML = `
+      <div class="card-banner" style="background: ${game.bg};">
+        <div class="banner-overlay"></div>
+        <div class="category-badge">${game.categoryName}</div>
+        <div class="play-badge">▶</div>
+        <div class="banner-icon">${game.icon}</div>
+      </div>
+      <div class="card-body">
+        <h2 class="card-title">${game.title}</h2>
+        <p class="card-desc">${game.desc}</p>
+        <div class="card-footer">
+          <div class="ctrl-mini">${game.tags}</div>
+          <button class="play-link" data-id="${game.id}">PLAY ▶</button>
+        </div>
+      </div>
+    `;
+
+    // Click anywhere on card to launch
+    card.addEventListener('click', (e) => {
+      launchGame(game);
+    });
+
+    gamesGrid.appendChild(card);
+  });
+}
+
+function launchGame(game) {
+  currentActiveGame = game;
+  modalTitle.textContent = `${game.icon} ${game.title}`;
+  modalIframe.src = game.path;
+  openNewTabBtn.href = game.path;
+  modal.classList.add('active');
+  document.body.style.overflow = 'hidden';
+  modalIframe.focus();
+}
+
+function closeGameModal() {
+  modal.classList.remove('active');
+  modalIframe.src = 'about:blank';
+  document.body.style.overflow = 'auto';
+  currentActiveGame = null;
+}
+
+closeModalBtn.addEventListener('click', closeGameModal);
+
+reloadGameBtn.addEventListener('click', () => {
+  if (currentActiveGame) {
+    modalIframe.src = currentActiveGame.path;
+    modalIframe.focus();
+  }
+});
+
+// Press ESC to return to Arcade Hub
+window.addEventListener('keydown', (e) => {
+  if (e.key === 'Escape' && modal.classList.contains('active')) {
+    closeGameModal();
+  }
+});
+
+// Category Filter Click
+filterBtns.forEach(btn => {
+  btn.addEventListener('click', () => {
+    filterBtns.forEach(b => b.classList.remove('active'));
+    btn.classList.add('active');
+    renderCards(btn.dataset.filter);
+  });
+});
+
+// Random Game Button
+randomBtn.addEventListener('click', () => {
+  const rand = GAMES[Math.floor(Math.random() * GAMES.length)];
+  launchGame(rand);
+});
+
+// Initial Render
+renderCards('all');
+
+</script>
+</body>
+</html>

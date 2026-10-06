@@ -1,0 +1,1578 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width,initial-scale=1">
+<title>Laser Mirror Duel – 2 Player Puzzle Battle</title>
+<meta name="description" content="Laser Mirror Duel: a fast-paced 2-player real-time puzzle battle. Rotate mirrors, redirect bouncing neon lasers, shatter your rival's crystal! Single keyboard, pure visual gameplay.">
+<style>
+  html,body{margin:0;height:100%;overflow:hidden;background:radial-gradient(ellipse at center,#0d1124 0%,#060814 60%,#020308 100%);}
+  body{display:flex;align-items:center;justify-content:center;}
+  canvas{display:block;border-radius:20px;box-shadow:0 0 60px rgba(0,240,255,.25),0 0 0 2px rgba(255,255,255,.07);cursor:pointer;}
+  h1{position:absolute;left:-9999px;top:0;}
+</style>
+</head>
+<body>
+<main>
+  <h1>Laser Mirror Duel</h1>
+  <canvas id="game" aria-label="Laser Mirror Duel game"></canvas>
+</main>
+<script>
+'use strict';
+/* ===================== CONSTANTS ===================== */
+const W = 1280, H = 720;
+const FONT = '"Arial Rounded MT Bold","Segoe UI Black","Trebuchet MS",system-ui,sans-serif';
+const WIN_SCORE = 3;
+
+// Grid layout: 13 columns x 7 rows
+const COLS = 13, ROWS = 7;
+const TILE_W = 76, TILE_H = 74;
+const BOARD_W = COLS * TILE_W; // 988
+const BOARD_H = ROWS * TILE_H; // 518
+const BX0 = Math.round((W - BOARD_W) / 2); // 146
+const BY0 = 152;
+const BX1 = BX0 + BOARD_W; // 1134
+const BY1 = BY0 + BOARD_H; // 670
+
+const CANNON_TILE = { c: 6, r: 3 }; // exact center tile
+const P1_CRYSTAL = { c: 0, r: 0 };  // top-left
+const P2_CRYSTAL = { c: 12, r: 6 }; // bottom-right
+
+const TEAM = [
+  { main: '#00f0ff', dark: '#005f8a', light: '#d0f8ff', robe: '#00438a', glow: 'rgba(0,240,255,' },
+  { main: '#ff2ebd', dark: '#8c005b', light: '#ffd6f3', robe: '#8a0058', glow: 'rgba(255,46,189,' }
+];
+
+const CTRL = [
+  { up: ['KeyW'], down: ['KeyS'], left: ['KeyA'], right: ['KeyD'], act: ['Space', 'KeyE'] },
+  { up: ['ArrowUp'], down: ['ArrowDown'], left: ['ArrowLeft'], right: ['ArrowRight'], act: ['Enter', 'NumpadEnter', 'ShiftRight', 'ShiftLeft'] }
+];
+const GAME_KEYS = new Set(CTRL.flatMap(c => [...c.up, ...c.down, ...c.left, ...c.right, ...c.act]));
+const CONFETTI = ['#00f0ff', '#ff2ebd', '#ffe04d', '#72ff7d', '#bd5fff', '#ffffff'];
+
+/* ===================== UTILS ===================== */
+const TAU = Math.PI * 2;
+const rand = (a, b) => a + Math.random() * (b - a);
+const pick = a => a[Math.floor(Math.random() * a.length)];
+const clamp = (v, a, b) => v < a ? a : v > b ? b : v;
+const lerp = (a, b, t) => a + (b - a) * t;
+const easeOutBack = t => { const c1 = 1.70158, c3 = c1 + 1; return 1 + c3 * Math.pow(t - 1, 3) + c1 * Math.pow(t - 1, 2); };
+function hexToRgb(h) { const n = parseInt(h.slice(1), 16); return [n >> 16 & 255, n >> 8 & 255, n & 255]; }
+function rgba(h, a) { const [r, g, b] = hexToRgb(h); return `rgba(${r},${g},${b},${a})`; }
+function rr(c, x, y, w, h, r) { c.beginPath(); c.moveTo(x + r, y); c.arcTo(x + w, y, x + w, y + h, r); c.arcTo(x + w, y + h, x, y + h, r); c.arcTo(x, y + h, x, y, r); c.arcTo(x, y, x + w, y, r); c.closePath(); }
+
+/* ===================== CANVAS ===================== */
+const cv = document.getElementById('game'), ctx = cv.getContext('2d');
+let scale = 1, boardBg = null;
+function resize() {
+  const dpr = Math.min(window.devicePixelRatio || 1, 2);
+  const s = Math.min(innerWidth / W, innerHeight / H) * 0.98;
+  cv.style.width = W * s + 'px'; cv.style.height = H * s + 'px';
+  cv.width = Math.round(W * s * dpr); cv.height = Math.round(H * s * dpr);
+  scale = s * dpr; buildBoard();
+}
+addEventListener('resize', resize);
+
+/* ===================== INPUT ENGINE ===================== */
+const Input = {
+  down: new Set(), pressed: new Set(),
+  isDown(codes) { for (const c of codes) if (this.down.has(c)) return true; return false; },
+  wasPressed(codes) { for (const c of codes) if (this.pressed.has(c)) return true; return false; },
+  endFrame() { this.pressed.clear(); },
+  reset() { this.down.clear(); this.pressed.clear(); }
+};
+addEventListener('keydown', e => {
+  if (GAME_KEYS.has(e.code) || e.code === 'Escape') e.preventDefault();
+  if (!e.repeat) Input.pressed.add(e.code);
+  Input.down.add(e.code);
+  audio();
+  if (e.code === 'Escape' && state !== 'menu') goMenu();
+}, { passive: false });
+addEventListener('keyup', e => { Input.down.delete(e.code); });
+addEventListener('blur', () => Input.reset());
+document.addEventListener('visibilitychange', () => Input.reset());
+cv.addEventListener('pointerdown', () => {
+  audio();
+  if (state === 'menu') startMatch();
+  else if (state === 'win' && stateT > 2.5) startMatch();
+});
+
+/* ===================== AUDIO ===================== */
+let AC = null, MG = null, humOsc = null, humGain = null;
+function audio() {
+  if (!AC) {
+    try {
+      AC = new (window.AudioContext || window.webkitAudioContext)();
+      MG = AC.createGain(); MG.gain.value = 0.45;
+      const comp = AC.createDynamicsCompressor(); MG.connect(comp); comp.connect(AC.destination);
+      // subtle laser hum
+      humOsc = AC.createOscillator(); humGain = AC.createGain();
+      humOsc.type = 'sawtooth'; humOsc.frequency.value = 88;
+      const filter = AC.createBiquadFilter(); filter.type = 'lowpass'; filter.frequency.value = 240;
+      humGain.gain.value = 0.02;
+      humOsc.connect(filter); filter.connect(humGain); humGain.connect(MG);
+      humOsc.start();
+    } catch (e) { return null; }
+  }
+  if (AC.state === 'suspended') AC.resume();
+  return AC;
+}
+function osc(type, f0, f1, dur, vol, delay = 0) {
+  const a = audio(); if (!a) return;
+  const t = a.currentTime + delay, o = a.createOscillator(), g = a.createGain();
+  o.type = type; o.frequency.setValueAtTime(f0, t);
+  if (f1 && f1 !== f0) o.frequency.exponentialRampToValueAtTime(f1, t + dur);
+  g.gain.setValueAtTime(0.0001, t); g.gain.exponentialRampToValueAtTime(vol, t + 0.012); g.gain.exponentialRampToValueAtTime(0.0001, t + dur);
+  o.connect(g); g.connect(MG); o.start(t); o.stop(t + dur + 0.05);
+}
+function noise(dur, vol, ftype, f0, f1, delay = 0, q = 1) {
+  const a = audio(); if (!a) return;
+  const buf = a.createBuffer(1, a.sampleRate * dur, a.sampleRate);
+  const d = buf.getChannelData(0);
+  for (let i = 0; i < d.length; i++) d[i] = Math.random() * 2 - 1;
+  const s = a.createBufferSource(); s.buffer = buf;
+  const f = a.createBiquadFilter(); f.type = ftype; f.Q.value = q;
+  const t = a.currentTime + delay;
+  f.frequency.setValueAtTime(f0, t);
+  if (f1) f.frequency.exponentialRampToValueAtTime(f1, t + dur);
+  const g = a.createGain(); g.gain.setValueAtTime(vol, t); g.gain.exponentialRampToValueAtTime(0.0001, t + dur);
+  s.connect(f); f.connect(g); g.connect(MG); s.start(t); s.stop(t + dur + 0.05);
+}
+const lastS = {};
+function can(n, gap) { const t = performance.now() / 1000; if (lastS[n] && t - lastS[n] < gap) return false; lastS[n] = t; return true; }
+const SFX = {
+  click() {
+    if (!can('click', 0.04)) return;
+    osc('triangle', 1800, 400, 0.06, 0.25);
+    osc('sine', 480, 220, 0.08, 0.2);
+    noise(0.04, 0.15, 'highpass', 3500, 1500);
+  },
+  bounce() {
+    if (!can('bounce', 0.07)) return;
+    osc('sine', 780, 1200, 0.08, 0.12);
+  },
+  bump() {
+    if (!can('bump', 0.08)) return;
+    osc('sine', 160, 60, 0.16, 0.35);
+    noise(0.12, 0.25, 'lowpass', 600, 100);
+  },
+  shatter() {
+    osc('sine', 140, 45, 0.45, 0.7);
+    noise(0.5, 0.6, 'bandpass', 2400, 400, 0, 2);
+    [1200, 1600, 2200, 2800, 3600].forEach((f, i) => {
+      osc('triangle', f, f * 0.4, 0.35, 0.16, i * 0.04);
+    });
+  },
+  point() {
+    [523, 659, 784, 1047].forEach((f, i) => {
+      osc('triangle', f, null, 0.25, 0.22, i * 0.075);
+      osc('sine', f * 2, null, 0.18, 0.08, i * 0.075);
+    });
+  },
+  ready() {
+    osc('triangle', 660, 1320, 0.14, 0.2);
+    osc('sine', 1320, null, 0.2, 0.15, 0.09);
+  },
+  beep(hi) {
+    osc('triangle', hi ? 960 : 480, null, hi ? 0.35 : 0.16, 0.25);
+  },
+  fanfare() {
+    const notes = [
+      [523, 0, 0.16], [659, 0.16, 0.16], [784, 0.32, 0.2],
+      [1047, 0.52, 0.4], [784, 0.95, 0.16], [1047, 1.12, 0.8]
+    ];
+    notes.forEach(([f, t, d]) => {
+      osc('sawtooth', f, null, d, 0.12, t);
+      osc('triangle', f * 2, null, d, 0.08, t);
+    });
+    [0, 0.52, 1.12].forEach(t => {
+      noise(0.25, 0.35, 'lowpass', 500, 80, t);
+    });
+  }
+};
+
+/* ===================== STATE ===================== */
+let state = 'menu', stateT = 0, time = 0;
+let scores = [0, 0], roundWinner = -1, winner = -1, lastBeep = -1;
+let ready = [false, false], menuGo = 0;
+let shake = 0, hitStop = 0, flash = 0, flashCol = '#fff';
+let P = [], mirrors = [], laserSegments = [], parts = [];
+const scorePop = [0, 0];
+
+function tileCenter(c, r) {
+  return { x: BX0 + c * TILE_W + TILE_W / 2, y: BY0 + r * TILE_H + TILE_H / 2 };
+}
+
+function makePlayer(id) {
+  const initTile = id === 0 ? { c: 2, r: 2 } : { c: 10, r: 4 };
+  const pos = tileCenter(initTile.c, initTile.r);
+  return {
+    id, x: pos.x, y: pos.y, vx: 0, vy: 0, r: 24,
+    fx: id === 0 ? 1 : -1, fy: 0,
+    speed: 310, nearMirror: null,
+    actCooldown: 0, hop: 0, dead: false
+  };
+}
+
+function generateMirrors() {
+  const list = [];
+  // Candidate tiles: skip cannon (6,3), crystals (0,0) and (12,6), and immediate neighboring tiles
+  const occupied = new Set([
+    '6,3', '0,0', '1,0', '0,1', '1,1',
+    '12,6', '11,6', '12,5', '11,5'
+  ]);
+  // Place strategic mirrors: about 18 mirrors evenly distributed
+  for (let c = 1; c < COLS - 1; c++) {
+    for (let r = 0; r < ROWS; r++) {
+      if (occupied.has(`${c},${r}`)) continue;
+      // Checkerboard-friendly density
+      if (Math.random() < 0.32 && list.length < 22) {
+        const pos = tileCenter(c, r);
+        const ang = Math.random() < 0.5 ? 0 : 1; // 0 = '/', 1 = '\'
+        list.push({
+          c, r, x: pos.x, y: pos.y,
+          angle: ang,               // 0 or 1
+          curAngle: ang * Math.PI / 2, // smoothed visual angle
+          targetAngle: ang * Math.PI / 2,
+          pulse: 0, spinV: 0
+        });
+        occupied.add(`${c},${r}`);
+      }
+    }
+  }
+  // Ensure minimum mirror count for lively routing
+  while (list.length < 16) {
+    const c = Math.floor(rand(1, COLS - 1));
+    const r = Math.floor(rand(0, ROWS));
+    if (!occupied.has(`${c},${r}`)) {
+      const pos = tileCenter(c, r);
+      const ang = Math.random() < 0.5 ? 0 : 1;
+      list.push({
+        c, r, x: pos.x, y: pos.y,
+        angle: ang,
+        curAngle: ang * Math.PI / 2,
+        targetAngle: ang * Math.PI / 2,
+        pulse: 0, spinV: 0
+      });
+      occupied.add(`${c},${r}`);
+    }
+  }
+  return list;
+}
+
+function resetRound() {
+  P = [makePlayer(0), makePlayer(1)];
+  mirrors = generateMirrors();
+  laserSegments = [];
+  roundWinner = -1;
+  state = 'count'; stateT = 0; lastBeep = -1;
+}
+
+function startMatch() {
+  scores = [0, 0]; winner = -1; parts = [];
+  ready = [false, false]; menuGo = 0;
+  Input.pressed.clear();
+  resetRound();
+}
+
+function goMenu() {
+  state = 'menu'; stateT = 0; ready = [false, false]; menuGo = 0; parts = [];
+}
+
+/* ===================== PARTICLES ===================== */
+function addP(o) {
+  if (parts.length > 900) parts.shift();
+  const p = Object.assign({ x: 0, y: 0, vx: 0, vy: 0, life: 1, size: 4, color: '#fff', g: 0, drag: 2, type: 'dot', rot: 0, vr: 0, grow: 0 }, o);
+  p.max = p.life; parts.push(p);
+}
+function burst(x, y, color, n, sp, size, life, type = 'dot', extra = {}) {
+  for (let i = 0; i < n; i++) {
+    const a = rand(0, TAU), s = rand(sp * 0.25, sp);
+    addP(Object.assign({ x, y, vx: Math.cos(a) * s, vy: Math.sin(a) * s, life: rand(life * 0.5, life), size: rand(size * 0.5, size), color: typeof color === 'function' ? color() : color, type, rot: rand(0, TAU), vr: rand(-8, 8) }, extra));
+  }
+}
+
+/* ===================== RAYCASTING ===================== */
+// Trace the continuous laser beams originating from the central cannon
+function traceLaser() {
+  const segments = [];
+  const startTiles = [
+    { c: CANNON_TILE.c, r: CANNON_TILE.r, dc: -1, dr: 0, col: '#00f0ff' }, // beam shooting Left
+    { c: CANNON_TILE.c, r: CANNON_TILE.r, dc: 1, dr: 0, col: '#ff2ebd' }   // beam shooting Right
+  ];
+  let crystalHit = -1;
+
+  for (const beam of startTiles) {
+    let curC = beam.c, curR = beam.r;
+    let dc = beam.dc, dr = beam.dr;
+    let p0 = tileCenter(curC, curR);
+    let bounces = 0;
+    const maxBounces = 45;
+
+    while (bounces < maxBounces) {
+      curC += dc; curR += dr;
+      bounces++;
+
+      // Check boundary hit (outer reflective border)
+      let hitBorder = false;
+      if (curC < 0) { curC = 0; dc = -dc; hitBorder = true; }
+      else if (curC >= COLS) { curC = COLS - 1; dc = -dc; hitBorder = true; }
+      if (curR < 0) { curR = 0; dr = -dr; hitBorder = true; }
+      else if (curR >= ROWS) { curR = ROWS - 1; dr = -dr; hitBorder = true; }
+
+      const p1 = tileCenter(curC, curR);
+      segments.push({ x0: p0.x, y0: p0.y, x1: p1.x, y1: p1.y, col: beam.col, isBounce: hitBorder });
+      p0 = p1;
+
+      // Check crystal hit
+      if (curC === P1_CRYSTAL.c && curR === P1_CRYSTAL.r) {
+        crystalHit = 0; // P1 crystal hit -> P2 scores
+        break;
+      }
+      if (curC === P2_CRYSTAL.c && curR === P2_CRYSTAL.r) {
+        crystalHit = 1; // P2 crystal hit -> P1 scores
+        break;
+      }
+
+      // Check mirror in this tile
+      const m = mirrors.find(mir => mir.c === curC && mir.r === curR);
+      if (m) {
+        // Diagonal reflection:
+        // angle 0 = '/' (top-right to bottom-left)
+        // angle 1 = '\' (top-left to bottom-right)
+        const oldDc = dc, oldDr = dr;
+        if (m.angle === 0) {
+          // '/' mirror:
+          // coming right (1, 0) -> goes up (0, -1)
+          // coming left (-1, 0) -> goes down (0, 1)
+          // coming down (0, 1) -> goes left (-1, 0)
+          // coming up (0, -1) -> goes right (1, 0)
+          dc = -oldDr;
+          dr = -oldDc;
+        } else {
+          // '\' mirror:
+          // coming right (1, 0) -> goes down (0, 1)
+          // coming left (-1, 0) -> goes up (0, -1)
+          // coming down (0, 1) -> goes right (1, 0)
+          // coming up (0, -1) -> goes left (-1, 0)
+          dc = oldDr;
+          dr = oldDc;
+        }
+        segments[segments.length - 1].isBounce = true;
+        // Spark effect on active mirror
+        if (Math.random() < 0.3) {
+          addP({ x: p1.x + rand(-6, 6), y: p1.y + rand(-6, 6), vx: rand(-50, 50), vy: rand(-50, 50), life: 0.22, size: rand(3, 7), color: beam.col, type: 'spark' });
+        }
+      }
+
+      // Stop if it returns straight into the cannon
+      if (curC === CANNON_TILE.c && curR === CANNON_TILE.r) break;
+    }
+  }
+
+  return { segments, crystalHit };
+}
+
+/* ===================== GAMEPLAY LOGIC ===================== */
+function updatePlayer(p, dt, playing) {
+  if (p.dead) return;
+  const c = CTRL[p.id];
+  let ix = 0, iy = 0;
+  if (playing) {
+    if (Input.isDown(c.up)) iy--;
+    if (Input.isDown(c.down)) iy++;
+    if (Input.isDown(c.left)) ix--;
+    if (Input.isDown(c.right)) ix++;
+  }
+  const l = Math.hypot(ix, iy);
+  if (l > 0) {
+    ix /= l; iy /= l;
+    p.fx = ix; p.fy = iy;
+    p.hop += dt * 16;
+  } else {
+    p.hop = 0;
+  }
+
+  const k = 14;
+  p.vx += (ix * p.speed - p.vx) * Math.min(1, k * dt);
+  p.vy += (iy * p.speed - p.vy) * Math.min(1, k * dt);
+  p.x += p.vx * dt;
+  p.y += p.vy * dt;
+
+  // Board boundary clamping
+  p.x = clamp(p.x, BX0 + p.r, BX1 - p.r);
+  p.y = clamp(p.y, BY0 + p.r, BY1 - p.r);
+
+  // Find nearest mirror within interact range
+  let nearest = null, minDist = 58;
+  for (const m of mirrors) {
+    const d = Math.hypot(m.x - p.x, m.y - p.y);
+    if (d < minDist) {
+      nearest = m;
+      minDist = d;
+    }
+  }
+  p.nearMirror = nearest;
+
+  // Action key for mirror rotation
+  p.actCooldown = Math.max(0, p.actCooldown - dt);
+  if (playing && Input.wasPressed(c.act) && p.actCooldown <= 0) {
+    if (p.nearMirror) {
+      const m = p.nearMirror;
+      m.angle = 1 - m.angle; // toggle 0 <-> 1
+      m.targetAngle += Math.PI / 2;
+      m.pulse = 1;
+      p.actCooldown = 0.22;
+      SFX.click();
+      burst(m.x, m.y, TEAM[p.id].main, 12, 180, 4, 0.35, 'spark');
+      addP({ type: 'ring', x: m.x, y: m.y, size: 10, grow: 40, life: 0.3, color: TEAM[p.id].main });
+    } else {
+      // Small visual wave if pressing action with no mirror
+      addP({ type: 'ring', x: p.x, y: p.y, size: p.r, grow: 25, life: 0.2, color: 'rgba(255,255,255,0.4)' });
+    }
+  }
+}
+
+function playersCollide() {
+  const a = P[0], b = P[1];
+  if (!a || !b || a.dead || b.dead) return;
+  const dx = b.x - a.x, dy = b.y - a.y, d = Math.hypot(dx, dy) || 0.001;
+  const min = a.r + b.r;
+  if (d < min) {
+    const nx = dx / d, ny = dy / d;
+    const ov = (min - d) / 2;
+    a.x -= nx * ov; a.y -= ny * ov;
+    b.x += nx * ov; b.y += ny * ov;
+    const rv = (a.vx - b.vx) * nx + (a.vy - b.vy) * ny;
+    if (rv > 0) {
+      const j = 1.6 * rv / 2;
+      a.vx -= j * nx; a.vy -= j * ny;
+      b.vx += j * nx; b.vy += j * ny;
+      if (rv > 120) {
+        SFX.bump();
+        burst((a.x + b.x) / 2, (a.y + b.y) / 2, '#fff', 8, 160, 4, 0.3, 'spark');
+      }
+    }
+  }
+}
+
+function handleInput() {
+  for (let i = 0; i < 2; i++) {
+    const pr = Input.wasPressed(CTRL[i].act);
+    if (state === 'menu') {
+      if (pr && !ready[i]) {
+        ready[i] = true;
+        SFX.ready();
+        burst(i ? 1050 : 230, 615, TEAM[i].main, 24, 280, 7, 0.7);
+      }
+    } else if (state === 'win') {
+      if (pr && stateT > 2.5) {
+        startMatch();
+        Input.endFrame();
+        return;
+      }
+    }
+  }
+}
+
+function shatterCrystal(crystalId) {
+  const pt = tileCenter(crystalId === 0 ? P1_CRYSTAL.c : P2_CRYSTAL.c, crystalId === 0 ? P1_CRYSTAL.r : P2_CRYSTAL.r);
+  const scoringPlayer = 1 - crystalId;
+  roundWinner = scoringPlayer;
+  scores[scoringPlayer]++;
+  scorePop[scoringPlayer] = 1;
+
+  hitStop = 0.1;
+  shake = Math.max(shake, 18);
+  flash = 0.4;
+  flashCol = TEAM[scoringPlayer].main;
+
+  SFX.shatter();
+  setTimeout(SFX.point, 400);
+
+  // Crystal explosion particles
+  burst(pt.x, pt.y, TEAM[crystalId].main, 40, 520, 8, 1.2, 'shard', { g: 300, drag: 1.2 });
+  burst(pt.x, pt.y, '#ffffff', 20, 360, 5, 0.7, 'spark');
+  addP({ type: 'ring', x: pt.x, y: pt.y, size: 20, grow: 160, life: 0.5, color: TEAM[crystalId].main });
+  addP({ type: 'ring', x: pt.x, y: pt.y, size: 40, grow: 220, life: 0.65, color: '#ffffff' });
+
+  state = 'roundEnd';
+  stateT = 0;
+}
+
+function update(dt) {
+  time += dt; stateT += dt;
+  handleInput();
+
+  if (state === 'menu') {
+    if (ready[0] && ready[1]) {
+      menuGo += dt;
+      if (menuGo > 0.7) startMatch();
+    }
+    if (Math.random() < dt * 6) {
+      addP({ x: rand(0, W), y: H + 10, vy: rand(-60, -120), vx: rand(-15, 15), life: rand(4, 7), size: rand(3, 8), color: rgba(pick(['#00f0ff', '#ff2ebd', '#ffe04d']), 0.5), drag: 0 });
+    }
+  } else {
+    let sdt = dt;
+    if (hitStop > 0) { hitStop -= dt; sdt = 0; }
+
+    if (sdt > 0) {
+      const playing = state === 'play';
+      for (const p of P) updatePlayer(p, sdt, playing);
+      playersCollide();
+
+      // Smooth mirror rotation animation
+      for (const m of mirrors) {
+        m.curAngle += (m.targetAngle - m.curAngle) * Math.min(1, sdt * 18);
+        m.pulse = Math.max(0, m.pulse - sdt * 3);
+      }
+
+      // Trace laser continuously
+      const trace = traceLaser();
+      laserSegments = trace.segments;
+
+      if (playing && trace.crystalHit >= 0) {
+        shatterCrystal(trace.crystalHit);
+      }
+    }
+
+    if (state === 'count') {
+      const num = Math.floor(stateT / 0.65);
+      if (num !== lastBeep && num < 3) {
+        lastBeep = num;
+        SFX.beep(false);
+      }
+      if (stateT >= 1.95) {
+        state = 'play';
+        stateT = 0;
+        SFX.beep(true);
+      }
+    }
+
+    if (state === 'roundEnd' && stateT > 2.2) {
+      if (scores[0] >= WIN_SCORE || scores[1] >= WIN_SCORE) {
+        winner = scores[0] >= WIN_SCORE ? 0 : 1;
+        state = 'win';
+        stateT = 0;
+        SFX.fanfare();
+      } else {
+        resetRound();
+      }
+    }
+
+    if (state === 'win') {
+      for (let i = 0; i < 4; i++) {
+        addP({
+          type: 'confetti', x: rand(0, W), y: -10,
+          vx: rand(-60, 60), vy: rand(90, 240),
+          g: 45, drag: 0.4, life: rand(3, 5),
+          size: rand(8, 14), color: pick(CONFETTI),
+          rot: rand(0, TAU), vr: rand(-7, 7)
+        });
+      }
+      if (Math.random() < dt * 3) {
+        const x = rand(150, 1130), y = rand(150, 450);
+        burst(x, y, () => pick(CONFETTI), 45, 400, 9, 1.5, 'confetti', { g: 180, drag: 1.4 });
+      }
+    }
+  }
+
+  // Update particles
+  for (let i = parts.length - 1; i >= 0; i--) {
+    const p = parts[i];
+    p.life -= dt;
+    if (p.life <= 0) { parts.splice(i, 1); continue; }
+    const f = Math.exp(-p.drag * dt);
+    p.vx *= f; p.vy *= f; p.vy += p.g * dt;
+    p.x += p.vx * dt; p.y += p.vy * dt;
+    p.rot += p.vr * dt;
+  }
+
+  shake = Math.max(0, shake - dt * 35);
+  flash = Math.max(0, flash - dt * 1.5);
+  scorePop[0] = Math.max(0, scorePop[0] - dt * 1.2);
+  scorePop[1] = Math.max(0, scorePop[1] - dt * 1.2);
+  Input.endFrame();
+}
+
+/* ===================== RENDERING ===================== */
+function circle(x, y, r) { ctx.beginPath(); ctx.arc(x, y, Math.max(0, r), 0, TAU); }
+function starPath(x, y, R, r, n = 5, rot = -Math.PI / 2) {
+  ctx.beginPath();
+  for (let i = 0; i < n * 2; i++) {
+    const a = rot + i * Math.PI / n, d = i % 2 ? r : R;
+    ctx.lineTo(x + Math.cos(a) * d, y + Math.sin(a) * d);
+  }
+  ctx.closePath();
+}
+
+function sparkle(x, y, s, alpha = 1) {
+  ctx.save();
+  ctx.globalAlpha *= alpha;
+  ctx.fillStyle = '#fff';
+  ctx.beginPath();
+  ctx.moveTo(x, y - s);
+  ctx.quadraticCurveTo(x, y, x + s, y);
+  ctx.quadraticCurveTo(x, y, x, y + s);
+  ctx.quadraticCurveTo(x, y, x - s, y);
+  ctx.quadraticCurveTo(x, y, x, y - s);
+  ctx.fill();
+  ctx.restore();
+}
+
+function buildBoard() {
+  boardBg = document.createElement('canvas');
+  boardBg.width = Math.round(W * scale);
+  boardBg.height = Math.round(H * scale);
+  const g = boardBg.getContext('2d');
+  g.setTransform(scale, 0, 0, scale, 0, 0);
+
+  // Outer ambient deep cyber dark
+  const bg = g.createRadialGradient(W / 2, H / 2, 80, W / 2, H / 2, 800);
+  bg.addColorStop(0, '#101732');
+  bg.addColorStop(0.65, '#070a16');
+  bg.addColorStop(1, '#020308');
+  g.fillStyle = bg;
+  g.fillRect(0, 0, W, H);
+
+  // Arena Grid floor
+  g.save();
+  rr(g, BX0, BY0, BOARD_W, BOARD_H, 24);
+  g.clip();
+  g.fillStyle = '#0a0f24';
+  g.fillRect(BX0, BY0, BOARD_W, BOARD_H);
+
+  // Checkerboard & Grid lines
+  for (let c = 0; c < COLS; c++) {
+    for (let r = 0; r < ROWS; r++) {
+      const x = BX0 + c * TILE_W, y = BY0 + r * TILE_H;
+      if ((c + r) % 2 === 0) {
+        g.fillStyle = 'rgba(255,255,255,0.025)';
+        g.fillRect(x, y, TILE_W, TILE_H);
+      }
+      g.strokeStyle = 'rgba(0,240,255,0.06)';
+      g.lineWidth = 1;
+      g.strokeRect(x, y, TILE_W, TILE_H);
+      // Small center cross on tiles
+      g.fillStyle = 'rgba(255,255,255,0.08)';
+      g.fillRect(x + TILE_W / 2 - 1, y + TILE_H / 2 - 1, 2, 2);
+    }
+  }
+  g.restore();
+
+  // Reflective neon borders with glowing rails
+  g.save();
+  g.strokeStyle = 'rgba(0,240,255,0.45)';
+  g.lineWidth = 6;
+  g.shadowColor = '#00f0ff';
+  g.shadowBlur = 18;
+  rr(g, BX0, BY0, BOARD_W, BOARD_H, 24);
+  g.stroke();
+  g.restore();
+
+  // Decorative border corner brackets
+  const corners = [
+    [BX0, BY0], [BX1, BY0], [BX0, BY1], [BX1, BY1]
+  ];
+  g.strokeStyle = '#ffffff';
+  g.lineWidth = 3;
+  corners.forEach(([x, y]) => {
+    g.beginPath();
+    g.arc(x, y, 14, 0, TAU);
+    g.stroke();
+  });
+}
+
+function drawCrystal(x, y, id, shattered) {
+  if (shattered) return;
+  const t = TEAM[id];
+  ctx.save();
+  ctx.translate(x, y);
+
+  // Pedestal base
+  ctx.fillStyle = 'rgba(10,18,36,0.85)';
+  ctx.strokeStyle = t.main;
+  ctx.lineWidth = 2.5;
+  circle(0, 16, 26); ctx.fill(); ctx.stroke();
+
+  // Pulsing glow aura
+  ctx.save();
+  ctx.globalCompositeOperation = 'lighter';
+  const gl = ctx.createRadialGradient(0, 0, 5, 0, 0, 48);
+  gl.addColorStop(0, t.glow + '0.65)');
+  gl.addColorStop(1, t.glow + '0)');
+  ctx.fillStyle = gl;
+  circle(0, 0, 48); ctx.fill();
+  ctx.restore();
+
+  // Floating bob animation
+  const bob = Math.sin(time * 3 + id * 2) * 5;
+  ctx.translate(0, bob);
+
+  // Crystal facets
+  const s = 24;
+  const cg = ctx.createLinearGradient(0, -s, 0, s);
+  cg.addColorStop(0, t.light);
+  cg.addColorStop(0.5, t.main);
+  cg.addColorStop(1, t.dark);
+
+  ctx.fillStyle = cg;
+  ctx.beginPath();
+  ctx.moveTo(0, -s * 1.3);
+  ctx.lineTo(s * 0.85, -s * 0.2);
+  ctx.lineTo(0, s * 1.3);
+  ctx.lineTo(-s * 0.85, -s * 0.2);
+  ctx.closePath();
+  ctx.fill();
+
+  // Highlight facet
+  ctx.fillStyle = 'rgba(255,255,255,0.45)';
+  ctx.beginPath();
+  ctx.moveTo(0, -s * 1.3);
+  ctx.lineTo(s * 0.85, -s * 0.2);
+  ctx.lineTo(0, s * 1.3);
+  ctx.closePath();
+  ctx.fill();
+
+  ctx.strokeStyle = '#ffffff';
+  ctx.lineWidth = 2;
+  ctx.stroke();
+
+  ctx.restore();
+}
+
+function drawCannon(x, y) {
+  ctx.save();
+  ctx.translate(x, y);
+
+  // Outer pulsing tech ring
+  const pulse = 0.5 + 0.5 * Math.sin(time * 6);
+  ctx.save();
+  ctx.globalCompositeOperation = 'lighter';
+  const gl = ctx.createRadialGradient(0, 0, 10, 0, 0, 44);
+  gl.addColorStop(0, 'rgba(255,255,255,0.4)');
+  gl.addColorStop(0.6, 'rgba(0,240,255,0.25)');
+  gl.addColorStop(1, 'rgba(0,240,255,0)');
+  ctx.fillStyle = gl;
+  circle(0, 0, 44); ctx.fill();
+  ctx.restore();
+
+  // Base mount
+  ctx.fillStyle = '#141c38';
+  circle(0, 0, 28); ctx.fill();
+  ctx.strokeStyle = '#00f0ff';
+  ctx.lineWidth = 3;
+  circle(0, 0, 28); ctx.stroke();
+
+  // Twin nozzle barrels (Left & Right)
+  ctx.fillStyle = '#22325c';
+  ctx.strokeStyle = '#fff';
+  ctx.lineWidth = 2;
+  rr(ctx, -36, -8, 16, 16, 4); ctx.fill(); ctx.stroke();
+  rr(ctx, 20, -8, 16, 16, 4); ctx.fill(); ctx.stroke();
+
+  // Core energy sphere
+  const cg = ctx.createRadialGradient(0, 0, 2, 0, 0, 14);
+  cg.addColorStop(0, '#ffffff');
+  cg.addColorStop(0.5, '#7df5ff');
+  cg.addColorStop(1, '#00a8ff');
+  ctx.fillStyle = cg;
+  circle(0, 0, 14 + pulse * 2); ctx.fill();
+  ctx.strokeStyle = '#ffffff'; ctx.lineWidth = 2; ctx.stroke();
+
+  ctx.restore();
+}
+
+function drawMirror(m) {
+  ctx.save();
+  ctx.translate(m.x, m.y);
+
+  // Near-player highlight aura
+  let isNear = false;
+  for (const p of P) {
+    if (p.nearMirror === m) {
+      isNear = true;
+      const t = TEAM[p.id];
+      ctx.save();
+      ctx.globalCompositeOperation = 'lighter';
+      ctx.fillStyle = t.glow + '0.35)';
+      circle(0, 0, 36); ctx.fill();
+      ctx.restore();
+      ctx.strokeStyle = t.main;
+      ctx.lineWidth = 3;
+      ctx.setLineDash([6, 5]);
+      ctx.lineDashOffset = -time * 40;
+      circle(0, 0, 32); ctx.stroke();
+      ctx.setLineDash([]);
+      break;
+    }
+  }
+
+  // Base circular pedestal
+  ctx.fillStyle = '#10162e';
+  circle(0, 0, 24); ctx.fill();
+  ctx.strokeStyle = isNear ? '#ffffff' : 'rgba(255,255,255,0.2)';
+  ctx.lineWidth = 2;
+  circle(0, 0, 24); ctx.stroke();
+
+  // Rotating mirror blade
+  ctx.rotate(m.curAngle);
+
+  // Mirror frame / bar
+  const L = 46, W = 8;
+  rr(ctx, -L / 2, -W / 2, L, W, 4);
+  ctx.fillStyle = '#1c264d';
+  ctx.fill();
+  ctx.strokeStyle = '#4e6ca6';
+  ctx.lineWidth = 1.5;
+  ctx.stroke();
+
+  // Reflective silver neon glass strip
+  const mg = ctx.createLinearGradient(-L / 2, 0, L / 2, 0);
+  mg.addColorStop(0, '#00f0ff');
+  mg.addColorStop(0.5, '#ffffff');
+  mg.addColorStop(1, '#ff2ebd');
+  ctx.fillStyle = mg;
+  rr(ctx, -L / 2 + 2, -W / 4, L - 4, W / 2, 2);
+  ctx.fill();
+
+  // Center pivot gem
+  ctx.fillStyle = '#ffffff';
+  circle(0, 0, 5); ctx.fill();
+  ctx.strokeStyle = '#00f0ff';
+  ctx.lineWidth = 2;
+  circle(0, 0, 5); ctx.stroke();
+
+  ctx.restore();
+}
+
+function drawLaserBeams() {
+  if (!laserSegments.length) return;
+
+  // 1. Broad outer glow pass
+  ctx.save();
+  ctx.globalCompositeOperation = 'lighter';
+  for (const s of laserSegments) {
+    ctx.strokeStyle = s.col;
+    ctx.lineWidth = 10;
+    ctx.shadowColor = s.col;
+    ctx.shadowBlur = 18;
+    ctx.beginPath();
+    ctx.moveTo(s.x0, s.y0);
+    ctx.lineTo(s.x1, s.y1);
+    ctx.stroke();
+  }
+  ctx.restore();
+
+  // 2. Focused vibrant core
+  for (const s of laserSegments) {
+    ctx.strokeStyle = s.col;
+    ctx.lineWidth = 4;
+    ctx.beginPath();
+    ctx.moveTo(s.x0, s.y0);
+    ctx.lineTo(s.x1, s.y1);
+    ctx.stroke();
+  }
+
+  // 3. Ultra-bright white laser center with moving pulse dashes
+  ctx.strokeStyle = '#ffffff';
+  ctx.lineWidth = 2;
+  ctx.setLineDash([12, 10]);
+  ctx.lineDashOffset = -time * 90;
+  for (const s of laserSegments) {
+    ctx.beginPath();
+    ctx.moveTo(s.x0, s.y0);
+    ctx.lineTo(s.x1, s.y1);
+    ctx.stroke();
+  }
+  ctx.setLineDash([]);
+
+  // 4. Spark flare at bounce endpoints
+  for (const s of laserSegments) {
+    if (s.isBounce) {
+      ctx.save();
+      ctx.globalCompositeOperation = 'lighter';
+      ctx.fillStyle = '#ffffff';
+      circle(s.x1, s.y1, 5 + Math.sin(time * 20) * 2);
+      ctx.fill();
+      ctx.fillStyle = s.col;
+      circle(s.x1, s.y1, 10);
+      ctx.fill();
+      ctx.restore();
+    }
+  }
+}
+
+/* ===================== CHARACTER DRAWING ===================== */
+// Player 1: Blue Wizard Cat
+// Player 2: Magenta Wizard Rabbit
+function drawCharacter(p) {
+  if (p.dead) return;
+  const id = p.id, t = TEAM[id];
+  const hopY = Math.abs(Math.sin(p.hop)) * 6;
+  const x = p.x, y = p.y - hopY;
+
+  ctx.save();
+  ctx.translate(x, y);
+
+  // Shadow
+  ctx.fillStyle = 'rgba(0,0,0,0.35)';
+  ctx.beginPath();
+  ctx.ellipse(0, p.r * 0.85 + hopY, p.r * 0.9, p.r * 0.35, 0, 0, TAU);
+  ctx.fill();
+
+  // Facing direction
+  const ang = Math.atan2(p.fy, p.fx);
+  const faceRight = Math.cos(ang) >= 0;
+
+  // Wizard Robe
+  const rg = ctx.createRadialGradient(0, -5, 2, 0, 5, p.r);
+  rg.addColorStop(0, t.light);
+  rg.addColorStop(0.4, t.robe);
+  rg.addColorStop(1, t.dark);
+  ctx.fillStyle = rg;
+  circle(0, 2, p.r);
+  ctx.fill();
+  ctx.strokeStyle = t.main;
+  ctx.lineWidth = 2.5;
+  circle(0, 2, p.r);
+  ctx.stroke();
+
+  // Ears
+  if (id === 0) {
+    // Cat ears
+    for (const s of [-1, 1]) {
+      ctx.fillStyle = t.dark;
+      ctx.beginPath();
+      ctx.moveTo(s * 6, -p.r * 0.7);
+      ctx.lineTo(s * 18, -p.r * 1.25);
+      ctx.lineTo(s * 18, -p.r * 0.3);
+      ctx.closePath();
+      ctx.fill();
+      ctx.fillStyle = '#ffe0ec';
+      ctx.beginPath();
+      ctx.moveTo(s * 8, -p.r * 0.65);
+      ctx.lineTo(s * 15, -p.r * 1.05);
+      ctx.lineTo(s * 15, -p.r * 0.4);
+      ctx.closePath();
+      ctx.fill();
+    }
+  } else {
+    // Rabbit long ears
+    for (const s of [-1, 1]) {
+      ctx.fillStyle = t.dark;
+      ctx.beginPath();
+      ctx.ellipse(s * 12, -p.r * 1.2, 7, 18, s * 0.2, 0, TAU);
+      ctx.fill();
+      ctx.fillStyle = '#ffe0ec';
+      ctx.beginPath();
+      ctx.ellipse(s * 12, -p.r * 1.2, 3.5, 12, s * 0.2, 0, TAU);
+      ctx.fill();
+    }
+  }
+
+  // Face details
+  const ox = p.fx * 5, oy = p.fy * 3;
+  // Cheeks
+  ctx.fillStyle = 'rgba(255,100,180,0.45)';
+  circle(-10 + ox, 4 + oy, 4); ctx.fill();
+  circle(10 + ox, 4 + oy, 4); ctx.fill();
+
+  // Eyes
+  for (const s of [-1, 1]) {
+    const ex = s * 7 + ox, ey = -1 + oy;
+    ctx.fillStyle = '#ffffff';
+    ctx.beginPath();
+    ctx.ellipse(ex, ey, 4.5, 6, 0, 0, TAU);
+    ctx.fill();
+    ctx.fillStyle = '#0a0d1e';
+    circle(ex + p.fx * 1.5, ey + p.fy * 1.2, 2.8);
+    ctx.fill();
+    ctx.fillStyle = '#fff';
+    circle(ex + p.fx * 1.5 - 1, ey - 1.5, 1.2);
+    ctx.fill();
+  }
+
+  // Nose & mouth
+  ctx.fillStyle = '#ff7ea8';
+  ctx.beginPath();
+  ctx.ellipse(ox, 4 + oy, 2.5, 1.8, 0, 0, TAU);
+  ctx.fill();
+
+  // Wizard hat
+  ctx.fillStyle = t.dark;
+  ctx.beginPath();
+  ctx.ellipse(0, -p.r * 0.7, 18, 5, 0, 0, TAU);
+  ctx.fill();
+  ctx.fillStyle = t.main;
+  ctx.beginPath();
+  ctx.moveTo(-12, -p.r * 0.7);
+  ctx.lineTo(8, -p.r * 1.6);
+  ctx.lineTo(12, -p.r * 0.7);
+  ctx.closePath();
+  ctx.fill();
+  ctx.fillStyle = '#ffe04d';
+  circle(8, -p.r * 1.6, 3.5); ctx.fill();
+
+  // Wizard Wand / Orb held in hand
+  const wandX = faceRight ? p.r * 0.9 : -p.r * 0.9;
+  const wandY = 2;
+  ctx.fillStyle = '#8b5a2b';
+  ctx.fillRect(wandX - 2, wandY - 14, 4, 20);
+  ctx.save();
+  ctx.globalCompositeOperation = 'lighter';
+  ctx.fillStyle = t.main;
+  circle(wandX, wandY - 14, 7); ctx.fill();
+  ctx.fillStyle = '#ffffff';
+  circle(wandX, wandY - 14, 3); ctx.fill();
+  ctx.restore();
+
+  ctx.restore();
+}
+
+function drawParticles() {
+  for (const p of parts) {
+    const a = clamp(p.life / p.max, 0, 1);
+    ctx.globalAlpha = a;
+    switch (p.type) {
+      case 'dot':
+        ctx.fillStyle = p.color;
+        circle(p.x, p.y, p.size * (0.3 + 0.7 * a));
+        ctx.fill();
+        break;
+      case 'spark':
+        ctx.strokeStyle = p.color;
+        ctx.lineWidth = Math.max(1, p.size * a);
+        ctx.lineCap = 'round';
+        ctx.beginPath();
+        ctx.moveTo(p.x, p.y);
+        ctx.lineTo(p.x - p.vx * 0.04, p.y - p.vy * 0.04);
+        ctx.stroke();
+        break;
+      case 'ring':
+        ctx.strokeStyle = p.color;
+        ctx.lineWidth = 4 * a;
+        circle(p.x, p.y, p.size + (1 - a) * p.grow);
+        ctx.stroke();
+        break;
+      case 'shard':
+        ctx.save();
+        ctx.translate(p.x, p.y);
+        ctx.rotate(p.rot);
+        ctx.fillStyle = p.color;
+        ctx.beginPath();
+        ctx.moveTo(-p.size, -p.size * 0.6);
+        ctx.lineTo(p.size * 0.8, -p.size * 0.8);
+        ctx.lineTo(p.size, p.size * 0.8);
+        ctx.lineTo(-p.size * 0.4, p.size);
+        ctx.closePath();
+        ctx.fill();
+        ctx.restore();
+        break;
+      case 'confetti':
+        ctx.save();
+        ctx.translate(p.x, p.y);
+        ctx.rotate(p.rot);
+        ctx.fillStyle = p.color;
+        const k = Math.abs(Math.cos(p.rot * 1.7));
+        ctx.fillRect(-p.size / 2, -p.size / 4 * k, p.size, p.size / 2 * k + 1);
+        ctx.restore();
+        break;
+    }
+  }
+  ctx.globalAlpha = 1;
+}
+
+/* ===================== HUD ===================== */
+function drawHUD() {
+  for (let i = 0; i < 2; i++) {
+    const left = i === 0, x0 = left ? 30 : W - 390, t = TEAM[i];
+    rr(ctx, x0, 20, 360, 84, 26);
+    const g = ctx.createLinearGradient(x0, 0, x0 + 360, 0);
+    g.addColorStop(left ? 0 : 1, t.glow + '0.45)');
+    g.addColorStop(left ? 1 : 0, 'rgba(10,16,36,0.85)');
+    ctx.fillStyle = g; ctx.fill();
+    ctx.strokeStyle = t.main; ctx.lineWidth = 3; ctx.stroke();
+
+    // Mini avatar
+    const cx = left ? x0 + 52 : x0 + 308;
+    ctx.save();
+    ctx.translate(cx, 62);
+    circle(0, 0, 24);
+    ctx.fillStyle = t.dark; ctx.fill();
+    ctx.strokeStyle = t.main; ctx.lineWidth = 2.5; ctx.stroke();
+    // Ear silhouettes
+    if (i === 0) {
+      ctx.fillStyle = t.main;
+      ctx.beginPath(); ctx.moveTo(-10, -10); ctx.lineTo(-18, -24); ctx.lineTo(-2, -16); ctx.fill();
+      ctx.beginPath(); ctx.moveTo(10, -10); ctx.lineTo(18, -24); ctx.lineTo(2, -16); ctx.fill();
+    } else {
+      ctx.fillStyle = t.main;
+      ctx.beginPath(); ctx.ellipse(-8, -20, 4, 12, -0.2, 0, TAU); ctx.fill();
+      ctx.beginPath(); ctx.ellipse(8, -20, 4, 12, 0.2, 0, TAU); ctx.fill();
+    }
+    // Eyes
+    ctx.fillStyle = '#fff';
+    circle(-6, 0, 3.5); ctx.fill(); circle(6, 0, 3.5); ctx.fill();
+    ctx.fillStyle = '#000';
+    circle(-5, 0, 2); ctx.fill(); circle(7, 0, 2); ctx.fill();
+    ctx.restore();
+
+    // 3 Star / Crystal Score Badges
+    for (let k = 0; k < WIN_SCORE; k++) {
+      const sx = left ? x0 + 128 + k * 64 : x0 + 232 - k * 64;
+      const lit = k < scores[i];
+      const isNew = lit && k === scores[i] - 1 && scorePop[i] > 0;
+      const sc = isNew ? 1 + Math.sin(scorePop[i] * Math.PI) * 0.5 : 1;
+
+      ctx.save();
+      ctx.translate(sx, 62);
+      ctx.scale(sc, sc);
+
+      if (lit) {
+        ctx.save();
+        ctx.globalCompositeOperation = 'lighter';
+        const gl = ctx.createRadialGradient(0, 0, 4, 0, 0, 28);
+        gl.addColorStop(0, t.glow + '0.75)');
+        gl.addColorStop(1, t.glow + '0)');
+        ctx.fillStyle = gl;
+        circle(0, 0, 28); ctx.fill();
+        ctx.restore();
+
+        const sg = ctx.createLinearGradient(0, -18, 0, 18);
+        sg.addColorStop(0, '#ffffff');
+        sg.addColorStop(0.5, t.main);
+        sg.addColorStop(1, t.dark);
+        ctx.fillStyle = sg;
+        starPath(0, 0, 20, 9);
+        ctx.fill();
+        ctx.strokeStyle = '#ffffff';
+        ctx.lineWidth = 2.5;
+        ctx.stroke();
+      } else {
+        ctx.fillStyle = 'rgba(255,255,255,0.08)';
+        starPath(0, 0, 18, 8);
+        ctx.fill();
+        ctx.strokeStyle = 'rgba(255,255,255,0.25)';
+        ctx.lineWidth = 2;
+        ctx.stroke();
+      }
+      ctx.restore();
+    }
+  }
+
+  // Central round crystal duel banner
+  rr(ctx, W / 2 - 70, 22, 140, 78, 22);
+  ctx.fillStyle = 'rgba(10,16,36,0.85)'; ctx.fill();
+  ctx.strokeStyle = 'rgba(255,255,255,0.25)'; ctx.lineWidth = 2.5; ctx.stroke();
+  drawCrystal(W / 2 - 28, 62, 0, false);
+  ctx.fillStyle = '#ffe04d';
+  starPath(W / 2, 62, 10, 4); ctx.fill();
+  drawCrystal(W / 2 + 28, 62, 1, false);
+}
+
+/* ===================== SCREENS ===================== */
+function drawKey(x, y, w, h, label, down, col) {
+  const d = down ? 4 : 0;
+  rr(ctx, x - w / 2, y - h / 2 + 5, w, h, 8);
+  ctx.fillStyle = '#060a18'; ctx.fill();
+  rr(ctx, x - w / 2, y - h / 2 + d, w, h, 8);
+  ctx.fillStyle = down ? col : '#1e284a';
+  ctx.fill();
+  ctx.strokeStyle = down ? '#fff' : '#455685';
+  ctx.lineWidth = 2; ctx.stroke();
+  if (label) {
+    ctx.fillStyle = down ? '#fff' : '#c0d0ff';
+    ctx.font = `900 ${Math.round(Math.min(w, h) * 0.48)}px ${FONT}`;
+    ctx.textAlign = 'center'; ctx.textBaseline = 'middle';
+    ctx.fillText(label, x, y + d + 1);
+  }
+}
+
+function drawCheck(x, y, r) {
+  ctx.fillStyle = '#3fd27a'; circle(x, y, r); ctx.fill();
+  ctx.strokeStyle = '#fff'; ctx.lineWidth = r * 0.12; ctx.stroke();
+  ctx.lineWidth = r * 0.22; ctx.lineCap = 'round'; ctx.lineJoin = 'round';
+  ctx.beginPath();
+  ctx.moveTo(x - r * 0.45, y + r * 0.02);
+  ctx.lineTo(x - r * 0.1, y + r * 0.36);
+  ctx.lineTo(x + r * 0.48, y - r * 0.32);
+  ctx.stroke();
+}
+
+function drawTitle() {
+  const words = [['LASER', '#00f0ff'], ['MIRROR', '#ffe04d'], ['DUEL', '#ff2ebd']];
+  ctx.font = `900 58px ${FONT}`; ctx.textBaseline = 'middle'; ctx.textAlign = 'left';
+  const full = words.map(w => w[0]).join(' ');
+  const tw = ctx.measureText(full).width;
+  let x = W / 2 - tw / 2, idx = 0;
+  for (const [wd, col] of words) {
+    for (const ch of wd) {
+      const y = 62 + Math.sin(time * 5 + idx * 0.5) * 6;
+      const cw = ctx.measureText(ch).width;
+      ctx.save();
+      ctx.translate(x + cw / 2, y);
+      ctx.lineWidth = 12; ctx.strokeStyle = '#050713';
+      ctx.strokeText(ch, -cw / 2, 0);
+      ctx.fillStyle = col;
+      ctx.fillText(ch, -cw / 2, 0);
+      ctx.restore();
+      x += cw; idx++;
+    }
+    x += ctx.measureText(' ').width;
+  }
+}
+
+function drawTutorialPanel(cx, id) {
+  const t = TEAM[id], rdy = ready[id];
+  rr(ctx, cx - 180, 120, 360, 560, 32);
+  const g = ctx.createLinearGradient(0, 120, 0, 680);
+  g.addColorStop(0, 'rgba(15,22,48,0.9)');
+  g.addColorStop(1, t.glow + '0.45)');
+  ctx.fillStyle = g; ctx.fill();
+  ctx.strokeStyle = rdy ? '#3fd27a' : t.main;
+  ctx.lineWidth = rdy ? 5 : 3;
+  ctx.stroke();
+
+  // Character preview
+  const tt = Math.max(0, time + id * 0.3);
+  const seq = ['up', 'right', 'down', 'left', 'act'];
+  const period = 0.6;
+  const si = ((Math.floor(tt / period) % seq.length) + seq.length) % seq.length;
+  const u = (tt % period) / period, down = u > 0.12 && u < 0.7;
+  const act = seq[si] || 'act';
+
+  const dirs = { up: [0, -1], down: [0, 1], left: [-1, 0], right: [1, 0], act: [0, 0] };
+  const d = dirs[act] || [0, 0];
+  const mv = act === 'act' ? 0 : (down ? Math.sin((u - 0.12) / 0.58 * Math.PI) * 16 : 0);
+  const jump = rdy ? Math.abs(Math.sin(time * 9)) * 16 : 0;
+
+  const charX = cx + (d[0] || 0) * mv, charY = 210 + (d[1] || 0) * mv - jump;
+  // Mini base
+  ctx.fillStyle = 'rgba(0,0,0,0.3)';
+  ctx.beginPath(); ctx.ellipse(cx, 240, 50, 14, 0, 0, TAU); ctx.fill();
+
+  drawCharacter({ id, x: charX, y: charY, r: 28, fx: rdy ? 0 : (d[0] || (id === 0 ? 1 : -1)), fy: rdy ? 0.3 : (d[1] || 0.2), hop: mv * 2 });
+  if (rdy) drawCheck(cx + 60, 160, 20);
+
+  // Key cluster
+  const keys = id === 0 ? ['W', 'A', 'S', 'D'] : ['▲', '◀', '▼', '▶'];
+  const pos = [[cx, 310], [cx - 56, 366], [cx, 366], [cx + 56, 366]];
+  pos.forEach(([kx, ky], k) => {
+    drawKey(kx, ky, 50, 50, keys[k], down && act === ['up', 'left', 'down', 'right'][k], t.main);
+  });
+
+  // Action key for rotating mirror
+  const actY = 460;
+  if (id === 0) {
+    drawKey(cx - 36, actY, 130, 46, '', down && act === 'act', t.main);
+    drawKey(cx + 56, actY, 46, 46, 'E', down && act === 'act', t.main);
+  } else {
+    drawKey(cx - 30, actY, 110, 46, '⏎', down && act === 'act', t.main);
+    drawKey(cx + 48, actY, 56, 46, '⇧', false, t.main);
+  }
+
+  // Mini mirror rotate demonstration
+  const mirX = cx, mirY = 530;
+  ctx.fillStyle = '#101734'; circle(mirX, mirY, 24); ctx.fill();
+  ctx.strokeStyle = t.main; ctx.lineWidth = 2; circle(mirX, mirY, 24); ctx.stroke();
+  const demoAng = (Math.floor(tt / period) % 4) * Math.PI / 2;
+  ctx.save();
+  ctx.translate(mirX, mirY);
+  ctx.rotate(demoAng);
+  rr(ctx, -20, -4, 40, 8, 3);
+  ctx.fillStyle = '#00f0ff'; ctx.fill();
+  ctx.restore();
+
+  // Ready indicator
+  const ry = 620;
+  if (rdy) {
+    drawCheck(cx, ry, 32);
+  } else {
+    const pulse = 0.5 + 0.5 * Math.sin(time * 5);
+    ctx.strokeStyle = t.glow + (0.5 + pulse * 0.5) + ')';
+    ctx.lineWidth = 5;
+    ctx.setLineDash([8, 6]);
+    circle(cx, ry, 34 + pulse * 4);
+    ctx.stroke();
+    ctx.setLineDash([]);
+    if (id === 0) drawKey(cx, ry, 70, 32, '', false, t.main);
+    else drawKey(cx, ry, 48, 36, '⏎', false, t.main);
+  }
+}
+
+function drawCenterDemo() {
+  const cx = W / 2;
+  rr(ctx, cx - 210, 120, 420, 560, 32);
+  ctx.fillStyle = 'rgba(12,18,40,0.85)'; ctx.fill();
+  ctx.strokeStyle = 'rgba(255,255,255,0.2)'; ctx.lineWidth = 3; ctx.stroke();
+
+  // Animated Mini-puzzle demonstration
+  const D = 3.6, u = (time % D) / D;
+  const mx = cx, my = 310;
+
+  // Mini board background
+  rr(ctx, cx - 180, 160, 360, 300, 18);
+  ctx.fillStyle = '#060a1c'; ctx.fill();
+  ctx.strokeStyle = '#00f0ff'; ctx.lineWidth = 2; ctx.stroke();
+
+  // Cannon on left
+  const canX = cx - 130, canY = 310;
+  drawCannon(canX, canY);
+
+  // Central mirror
+  const mirRot = u > 0.45 ? Math.PI / 2 : 0;
+  ctx.save();
+  ctx.translate(mx, my);
+  ctx.rotate(mirRot + Math.PI / 4);
+  rr(ctx, -24, -5, 48, 10, 4);
+  ctx.fillStyle = '#00f0ff'; ctx.fill();
+  ctx.strokeStyle = '#fff'; ctx.lineWidth = 2; ctx.stroke();
+  ctx.restore();
+
+  // Destination Crystal at top-right
+  const cryX = cx + 110, cryY = 220;
+  const isShattered = u > 0.5;
+  drawCrystal(cryX, cryY, 1, isShattered);
+
+  // Animated Laser beam
+  ctx.save();
+  ctx.strokeStyle = '#00f0ff';
+  ctx.lineWidth = 4;
+  ctx.shadowColor = '#00f0ff';
+  ctx.shadowBlur = 12;
+  ctx.beginPath();
+  ctx.moveTo(canX + 16, canY);
+  ctx.lineTo(mx, my);
+  if (u > 0.45) {
+    ctx.lineTo(cryX, cryY);
+  } else {
+    ctx.lineTo(mx, my + 90);
+  }
+  ctx.stroke();
+  ctx.restore();
+
+  if (isShattered) {
+    sparkle(cryX, cryY, 20);
+    drawCheck(cryX, cryY - 35, 14);
+  }
+
+  // Visual summary: 3 stars -> Trophy
+  for (let k = 0; k < 3; k++) {
+    const sx = cx - 110 + k * 44;
+    ctx.fillStyle = '#ffe04d';
+    starPath(sx, 510, 14, 6);
+    ctx.fill();
+    ctx.strokeStyle = '#8a5a00'; ctx.lineWidth = 2; ctx.stroke();
+  }
+  // Arrow pointing to trophy
+  ctx.fillStyle = '#ffffff';
+  ctx.beginPath();
+  ctx.moveTo(cx + 30, 504); ctx.lineTo(cx + 54, 510); ctx.lineTo(cx + 30, 516); ctx.closePath();
+  ctx.fill();
+
+  // Trophy
+  ctx.save();
+  ctx.translate(cx + 100, 510 + Math.sin(time * 3) * 4);
+  ctx.scale(0.65, 0.65);
+  ctx.fillStyle = '#ffe04d';
+  ctx.strokeStyle = '#8a5a00';
+  ctx.lineWidth = 3;
+  ctx.beginPath();
+  ctx.arc(0, -20, 24, 0, Math.PI); ctx.fill(); ctx.stroke();
+  ctx.fillRect(-6, 4, 12, 16); ctx.strokeRect(-6, 4, 12, 16);
+  rr(ctx, -22, 20, 44, 14, 4); ctx.fill(); ctx.stroke();
+  ctx.restore();
+}
+
+function drawMenu() {
+  ctx.fillStyle = 'rgba(4,6,16,0.7)'; ctx.fillRect(0, 0, W, H);
+  drawParticles();
+  drawTitle();
+  drawTutorialPanel(230, 0);
+  drawTutorialPanel(1050, 1);
+  drawCenterDemo();
+
+  if (ready[0] && ready[1]) {
+    ctx.fillStyle = `rgba(255,255,255,${Math.min(0.85, menuGo * 1.3)})`;
+    ctx.fillRect(0, 0, W, H);
+  }
+}
+
+function drawCountdown() {
+  if (state === 'count') {
+    const num = 3 - Math.floor(stateT / 0.65), u = (stateT % 0.65) / 0.65;
+    const s = 0.4 + easeOutBack(Math.min(1, u * 2.5)) * 0.8;
+    ctx.save();
+    ctx.translate(W / 2, H / 2);
+    ctx.scale(s, s);
+    ctx.globalAlpha = 1 - Math.max(0, u - 0.7) * 3;
+    ctx.fillStyle = ['#72ff7d', '#ffe04d', '#ff2ebd'][num - 1] || '#fff';
+    circle(0, 0, 70); ctx.fill();
+    ctx.strokeStyle = '#fff'; ctx.lineWidth = 8; ctx.stroke();
+    ctx.font = `900 96px ${FONT}`; ctx.textAlign = 'center'; ctx.textBaseline = 'middle';
+    ctx.fillStyle = '#fff'; ctx.fillText(num, 0, 6);
+    ctx.restore();
+    ctx.globalAlpha = 1;
+  }
+}
+
+function drawRoundEnd() {
+  if (stateT < 0.4) return;
+  const u = Math.min(1, (stateT - 0.4) / 0.4), s = easeOutBack(u);
+  ctx.save();
+  ctx.translate(W / 2, H / 2);
+  ctx.scale(s, s);
+  if (roundWinner >= 0) {
+    const t = TEAM[roundWinner];
+    ctx.save();
+    ctx.rotate(time * 2);
+    ctx.fillStyle = t.glow + '0.35)';
+    for (let k = 0; k < 12; k++) {
+      ctx.rotate(TAU / 12);
+      ctx.beginPath(); ctx.moveTo(0, 0); ctx.lineTo(-20, -180); ctx.lineTo(20, -180); ctx.closePath(); ctx.fill();
+    }
+    ctx.restore();
+    ctx.fillStyle = 'rgba(10,16,36,0.94)';
+    circle(0, 0, 80); ctx.fill();
+    ctx.strokeStyle = t.main; ctx.lineWidth = 8; ctx.stroke();
+    drawCharacter({ id: roundWinner, x: 0, y: 10 - Math.abs(Math.sin(time * 8)) * 10, r: 36, fx: 0, fy: 0.2, hop: 0 });
+    drawCheck(56, -50, 20);
+  }
+  ctx.restore();
+}
+
+function drawWin() {
+  const winId = (winner === 0 || winner === 1) ? winner : (scores[0] >= scores[1] ? 0 : 1);
+  const t = TEAM[winId];
+  ctx.fillStyle = `rgba(2,4,12,${Math.min(0.65, stateT * 0.8)})`;
+  ctx.fillRect(0, 0, W, H);
+
+  // Victory light rays
+  ctx.save();
+  ctx.translate(W / 2, 380);
+  ctx.rotate(time * 0.4);
+  for (let k = 0; k < 16; k++) {
+    ctx.rotate(TAU / 16);
+    ctx.fillStyle = k % 2 ? t.glow + '0.3)' : 'rgba(255,224,77,0.2)';
+    ctx.beginPath(); ctx.moveTo(0, 0); ctx.lineTo(-70, -800); ctx.lineTo(70, -800); ctx.closePath(); ctx.fill();
+  }
+  ctx.restore();
+
+  const enter = easeOutBack(Math.min(1, stateT * 1.4));
+  const b = Math.abs(Math.sin(time * 5));
+
+  ctx.save();
+  ctx.translate(W / 2, 400);
+  ctx.scale(enter, enter);
+  ctx.fillStyle = 'rgba(0,0,0,0.35)';
+  ctx.beginPath(); ctx.ellipse(0, 100, 90 - b * 20, 18, 0, 0, TAU); ctx.fill();
+
+  // Winner character
+  drawCharacter({ id: winId, x: 0, y: -b * 35, r: 75, fx: Math.sin(time * 3) * 0.4, fy: 0.2, hop: 0 });
+
+  // Floating Trophy & Crown
+  ctx.save();
+  ctx.translate(0, -b * 35 - 120);
+  ctx.scale(1.4, 1.4);
+  ctx.fillStyle = '#ffe04d'; ctx.strokeStyle = '#8a5a00'; ctx.lineWidth = 3;
+  ctx.beginPath();
+  ctx.moveTo(-28, 10); ctx.lineTo(-32, -18); ctx.lineTo(-14, -4); ctx.lineTo(0, -24); ctx.lineTo(14, -4); ctx.lineTo(32, -18); ctx.lineTo(28, 10); ctx.closePath();
+  ctx.fill(); ctx.stroke();
+  ctx.restore();
+
+  ctx.restore();
+
+  // Star badges at bottom
+  for (let k = 0; k < WIN_SCORE; k++) {
+    ctx.fillStyle = '#ffe04d';
+    const s = 22 + Math.sin(time * 6 + k) * 3;
+    starPath(W / 2 - 80 + k * 80, 580, s, s * 0.45);
+    ctx.fill();
+    ctx.strokeStyle = '#8a5a00'; ctx.lineWidth = 3; ctx.stroke();
+  }
+
+  drawParticles();
+
+  // Replay prompt
+  if (stateT > 2.5) {
+    const tap = Math.floor(time * 2.5) % 2 === 0;
+    const a = Math.min(1, (stateT - 2.5) * 2);
+    ctx.globalAlpha = a;
+    rr(ctx, W / 2 - 170, 626, 340, 68, 34);
+    ctx.fillStyle = 'rgba(10,16,36,0.92)'; ctx.fill();
+    ctx.strokeStyle = t.main; ctx.lineWidth = 4; ctx.stroke();
+    drawKey(W / 2 - 95, 660, 90, 36, '', tap, TEAM[0].main);
+    drawKey(W / 2 + 95, 660, 56, 36, '⏎', !tap, TEAM[1].main);
+    ctx.save();
+    ctx.translate(W / 2, 660);
+    ctx.rotate(time * 3);
+    ctx.strokeStyle = '#3fd27a'; ctx.lineWidth = 6; ctx.lineCap = 'round';
+    ctx.beginPath(); ctx.arc(0, 0, 16, 0.3, TAU - 0.6); ctx.stroke();
+    ctx.restore();
+    ctx.globalAlpha = 1;
+  }
+}
+
+/* ===================== RENDER LOOP ===================== */
+function render() {
+  ctx.setTransform(scale, 0, 0, scale, 0, 0);
+  ctx.clearRect(0, 0, W, H);
+  ctx.save();
+  if (shake > 0) ctx.translate(rand(-shake, shake), rand(-shake, shake));
+  ctx.drawImage(boardBg, 0, 0, W, H);
+
+  if (state !== 'menu') {
+    // 1. Draw Crystals at designated corner tiles
+    const p1Pt = tileCenter(P1_CRYSTAL.c, P1_CRYSTAL.r);
+    const p2Pt = tileCenter(P2_CRYSTAL.c, P2_CRYSTAL.r);
+    drawCrystal(p1Pt.x, p1Pt.y, 0, roundWinner === 1 && state === 'roundEnd');
+    drawCrystal(p2Pt.x, p2Pt.y, 1, roundWinner === 0 && state === 'roundEnd');
+
+    // 2. Draw Mirrors
+    for (const m of mirrors) drawMirror(m);
+
+    // 3. Draw Cannon
+    const canPt = tileCenter(CANNON_TILE.c, CANNON_TILE.r);
+    drawCannon(canPt.x, canPt.y);
+
+    // 4. Draw Laser Beams
+    drawLaserBeams();
+
+    // 5. Draw Players
+    const order = [...P].sort((a, b) => a.y - b.y);
+    for (const p of order) {
+      if (!(state === 'win' && p.id !== winner)) drawCharacter(p);
+    }
+
+    if (state !== 'win') drawParticles();
+  }
+  ctx.restore();
+
+  if (state !== 'menu') drawHUD();
+  if (flash > 0) {
+    ctx.fillStyle = rgba(flashCol, flash * 0.45);
+    ctx.fillRect(0, 0, W, H);
+  }
+
+  if (state === 'menu') drawMenu();
+  if (state === 'count') drawCountdown();
+  if (state === 'roundEnd') drawRoundEnd();
+  if (state === 'win') drawWin();
+}
+
+let last = performance.now();
+function frame(now) {
+  const dt = Math.min(0.05, (now - last) / 1000);
+  last = now;
+  update(dt);
+  render();
+  requestAnimationFrame(frame);
+}
+
+resize();
+P = [makePlayer(0), makePlayer(1)];
+requestAnimationFrame(frame);
+</script>
+</body>
+</html>

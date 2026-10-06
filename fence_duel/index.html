@@ -1,0 +1,1570 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width,initial-scale=1">
+<title>The Great Fence Duel – 2-Player Turn-Based Board Game</title>
+<meta name="description" content="The Great Fence Duel: A peaceful, strategic 2-player turn-based board game inspired by Quoridor. Outsmart your opponent with clever moves and wooden fences!">
+<style>
+  * { box-sizing: border-box; margin: 0; padding: 0; user-select: none; -webkit-user-select: none; }
+  html, body {
+    width: 100%; height: 100%; overflow: hidden;
+    background: radial-gradient(ellipse at center, #2e4438 0%, #1a2a22 60%, #0e1713 100%);
+    display: flex; align-items: center; justify-content: center;
+    font-family: "Arial Rounded MT Bold", "Segoe UI Black", "Trebuchet MS", system-ui, sans-serif;
+  }
+  canvas {
+    display: block;
+    border-radius: 20px;
+    box-shadow: 0 24px 70px rgba(0,0,0,0.55), 0 0 0 3px rgba(255,255,255,0.15);
+    cursor: default;
+    background: #1c2e24;
+  }
+  h1 { position: absolute; left: -9999px; top: 0; }
+</style>
+</head>
+<body>
+<main>
+  <h1>The Great Fence Duel</h1>
+  <canvas id="game" aria-label="The Great Fence Duel canvas board game"></canvas>
+</main>
+<script>
+'use strict';
+
+/* ==========================================================================
+   CONSTANTS & CONFIGURATION
+   ========================================================================== */
+const W = 1280, H = 720;
+const FONT = '"Arial Rounded MT Bold", "Segoe UI Black", "Trebuchet MS", system-ui, sans-serif';
+const GRID_SIZE = 7;
+const TOTAL_FENCES = 6;
+
+// Palette
+const PALETTE = {
+  bg: '#1a2a22',
+  table: '#273c30',
+  boardBorder: '#4a2f1b',
+  boardBorderDark: '#2e1c0f',
+  boardWood: '#cbb18a',
+  tileBase: '#ebd9bc',
+  tileBevel: '#dfc7a5',
+  groove: '#a4845c',
+  grooveHover: '#e0c89a',
+  fenceWood: '#80471c',
+  fenceTop: '#9e5d2b',
+  fenceDark: '#542d10',
+  fenceGlow: 'rgba(255, 215, 0, 0.4)',
+  p1: {
+    main: '#3b82f6',
+    dark: '#1d4ed8',
+    light: '#bfdbfe',
+    glow: 'rgba(59, 130, 246, 0.45)',
+    name: 'Blue Sheep'
+  },
+  p2: {
+    main: '#ec4899',
+    dark: '#be185d',
+    light: '#fbcfe8',
+    glow: 'rgba(236, 72, 153, 0.45)',
+    name: 'Pink Sheep'
+  }
+};
+
+/* ==========================================================================
+   BOARD GEOMETRY & LAYOUT
+   ========================================================================== */
+// Board centered at X = 640, Y = 368
+const BOARD = {
+  cx: 640,
+  cy: 368,
+  tileSize: 64,
+  groove: 14,
+  get totalW() { return GRID_SIZE * this.tileSize + (GRID_SIZE - 1) * this.groove; },
+  get totalH() { return GRID_SIZE * this.tileSize + (GRID_SIZE - 1) * this.groove; },
+  get x0() { return this.cx - this.totalW / 2; },
+  get y0() { return this.cy - this.totalH / 2; }
+};
+
+function tileCenter(r, c) {
+  const x = BOARD.x0 + c * (BOARD.tileSize + BOARD.groove) + BOARD.tileSize / 2;
+  const y = BOARD.y0 + r * (BOARD.tileSize + BOARD.groove) + BOARD.tileSize / 2;
+  return { x, y };
+}
+
+function grooveCenter(r, c) {
+  // Intersection (r, c) where 0 <= r <= 5 and 0 <= c <= 5
+  const x = BOARD.x0 + (c + 1) * BOARD.tileSize + (c + 0.5) * BOARD.groove;
+  const y = BOARD.y0 + (r + 1) * BOARD.tileSize + (r + 0.5) * BOARD.groove;
+  return { x, y };
+}
+
+/* ==========================================================================
+   AUDIO SYNTHESIZER (WEB AUDIO API - ZERO EXTERNAL ASSETS)
+   ========================================================================== */
+let AC = null, MG = null;
+function audio() {
+  if (!AC) {
+    try {
+      AC = new (window.AudioContext || window.webkitAudioContext)();
+      MG = AC.createGain();
+      MG.gain.value = 0.5;
+      const comp = AC.createDynamicsCompressor();
+      MG.connect(comp);
+      comp.connect(AC.destination);
+    } catch (e) { return null; }
+  }
+  if (AC.state === 'suspended') AC.resume();
+  return AC;
+}
+
+function osc(type, f0, f1, dur, vol, delay = 0) {
+  const a = audio(); if (!a) return;
+  const t = a.currentTime + delay, o = a.createOscillator(), g = a.createGain();
+  o.type = type;
+  o.frequency.setValueAtTime(f0, t);
+  if (f1 && f1 !== f0) o.frequency.exponentialRampToValueAtTime(f1, t + dur);
+  g.gain.setValueAtTime(0.0001, t);
+  g.gain.exponentialRampToValueAtTime(vol, t + 0.008);
+  g.gain.exponentialRampToValueAtTime(0.0001, t + dur);
+  o.connect(g); g.connect(MG);
+  o.start(t); o.stop(t + dur + 0.05);
+}
+
+function noise(dur, vol, ftype, f0, f1, delay = 0) {
+  const a = audio(); if (!a) return;
+  const buf = a.createBuffer(1, a.sampleRate * dur, a.sampleRate);
+  const d = buf.getChannelData(0);
+  for (let i = 0; i < d.length; i++) d[i] = Math.random() * 2 - 1;
+  const s = a.createBufferSource(); s.buffer = buf;
+  const f = a.createBiquadFilter(); f.type = ftype;
+  const t = a.currentTime + delay;
+  f.frequency.setValueAtTime(f0, t);
+  if (f1) f.frequency.exponentialRampToValueAtTime(f1, t + dur);
+  const g = a.createGain();
+  g.gain.setValueAtTime(vol, t);
+  g.gain.exponentialRampToValueAtTime(0.0001, t + dur);
+  s.connect(f); f.connect(g); g.connect(MG);
+  s.start(t); s.stop(t + dur + 0.05);
+}
+
+const SFX = {
+  step() {
+    osc('sine', 160, 90, 0.12, 0.35);
+    noise(0.06, 0.2, 'lowpass', 600, 200);
+  },
+  jump() {
+    osc('triangle', 220, 440, 0.16, 0.32);
+    osc('sine', 440, 220, 0.14, 0.2, 0.08);
+  },
+  fence() {
+    // Crisp wooden clack
+    osc('triangle', 340, 80, 0.09, 0.45);
+    noise(0.07, 0.6, 'bandpass', 1400, 600);
+  },
+  rotate() {
+    osc('sine', 520, 680, 0.08, 0.2);
+  },
+  invalid() {
+    osc('sawtooth', 120, 80, 0.14, 0.25);
+  },
+  click() {
+    osc('triangle', 440, 660, 0.05, 0.15);
+  },
+  win() {
+    const notes = [
+      [392, 0.0, 0.25],
+      [523, 0.12, 0.25],
+      [659, 0.24, 0.28],
+      [784, 0.38, 0.6],
+      [1046, 0.54, 0.9]
+    ];
+    notes.forEach(([f, del, dur]) => {
+      osc('triangle', f, null, dur, 0.22, del);
+      osc('sine', f * 2, null, dur, 0.12, del);
+    });
+  }
+};
+
+/* ==========================================================================
+   CANVAS & RESIZE
+   ========================================================================== */
+const cv = document.getElementById('game'), ctx = cv.getContext('2d');
+let scale = 1;
+
+function resize() {
+  const dpr = Math.min(window.devicePixelRatio || 1, 2);
+  const s = Math.min(innerWidth / W, innerHeight / H) * 0.98;
+  cv.style.width = Math.round(W * s) + 'px';
+  cv.style.height = Math.round(H * s) + 'px';
+  cv.width = Math.round(W * s * dpr);
+  cv.height = Math.round(H * s * dpr);
+  scale = s * dpr;
+}
+addEventListener('resize', resize);
+
+function getCanvasPos(e) {
+  const rect = cv.getBoundingClientRect();
+  return {
+    x: (e.clientX - rect.left) * (W / rect.width),
+    y: (e.clientY - rect.top) * (H / rect.height)
+  };
+}
+
+/* ==========================================================================
+   DRAWING UTILITIES
+   ========================================================================== */
+const TAU = Math.PI * 2;
+const clamp = (v, a, b) => v < a ? a : v > b ? b : v;
+const lerp = (a, b, t) => a + (b - a) * t;
+
+function rr(c, x, y, w, h, r) {
+  c.beginPath();
+  c.moveTo(x + r, y);
+  c.arcTo(x + w, y, x + w, y + h, r);
+  c.arcTo(x + w, y + h, x, y + h, r);
+  c.arcTo(x, y + h, x, y, r);
+  c.arcTo(x, y, x + w, y, r);
+  c.closePath();
+}
+
+function circle(x, y, r) {
+  ctx.beginPath();
+  ctx.arc(x, y, Math.max(0, r), 0, TAU);
+}
+
+/* ==========================================================================
+   GAME STATE
+   ========================================================================== */
+let time = 0;
+let turn = 0; // 0 = Player 1 (Blue), 1 = Player 2 (Pink)
+let winner = -1; // -1 = playing, 0 = P1 won, 1 = P2 won
+let winTime = 0;
+
+// Player positions: (r, c)
+let pawns = [
+  { r: 6, c: 3, animX: 0, animY: 0, jump: 0 }, // P1 Blue Sheep (starts at bottom center)
+  { r: 0, c: 3, animX: 0, animY: 0, jump: 0 }  // P2 Pink Sheep (starts at top center)
+];
+
+// Fences remaining
+let fencesLeft = [TOTAL_FENCES, TOTAL_FENCES];
+
+// Placed fences array: { r, c, ori: 'H'|'V', owner: 0|1 }
+// where 0 <= r <= 5 and 0 <= c <= 5
+let fences = [];
+
+// Action Mode: 'move' | 'fence'
+let actionMode = 'move';
+
+// Fence orientation: 'H' (Horizontal) | 'V' (Vertical)
+let fenceOrientation = 'H';
+
+// Mouse / Keyboard Cursor State
+let mousePos = { x: 0, y: 0 };
+let hoveredTile = null;   // { r, c }
+let hoveredGroove = null; // { r, c }
+let cursorTile = { r: 6, c: 3 };
+let cursorGroove = { r: 2, c: 2 };
+let validMoves = [];      // Array of { r, c, isJump }
+
+// Particles
+let particles = [];
+function addP(o) {
+  if (particles.length > 300) particles.shift();
+  particles.push(Object.assign({ x: 0, y: 0, vx: 0, vy: 0, life: 1, max: 1, size: 5, color: '#fff', rot: 0, vr: 0 }, o));
+}
+function burst(x, y, col, n = 16, sp = 120, size = 6) {
+  for (let i = 0; i < n; i++) {
+    const a = Math.random() * TAU, s = Math.random() * sp;
+    addP({
+      x, y,
+      vx: Math.cos(a) * s,
+      vy: Math.sin(a) * s,
+      life: 0.4 + Math.random() * 0.4,
+      max: 0.8,
+      size: Math.random() * size + 2,
+      color: typeof col === 'function' ? col() : col
+    });
+  }
+}
+
+/* ==========================================================================
+   QUORIDOR LOGIC: FENCE & MOVEMENT PATHFINDING
+   ========================================================================== */
+
+/**
+ * Checks if a direct step between two adjacent orthogonal tiles (r1, c1) and (r2, c2)
+ * is blocked by any placed fence.
+ */
+function isEdgeBlocked(r1, c1, r2, c2, testFences = fences) {
+  // Movement from (r1, c1) to (r2, c2)
+  if (r1 === r2) {
+    // Horizontal step: between col c and col c+1
+    const minC = Math.min(c1, c2);
+    // Blocked if a Vertical fence covers this row at minC
+    // A vertical fence at (fr, minC) covers rows fr and fr+1
+    for (const f of testFences) {
+      if (f.ori === 'V' && f.c === minC) {
+        if (f.r === r1 || f.r === r1 - 1) return true;
+      }
+    }
+  } else if (c1 === c2) {
+    // Vertical step: between row r and row r+1
+    const minR = Math.min(r1, r2);
+    // Blocked if a Horizontal fence covers this col at minR
+    // A horizontal fence at (minR, fc) covers cols fc and fc+1
+    for (const f of testFences) {
+      if (f.ori === 'H' && f.r === minR) {
+        if (f.c === c1 || f.c === c1 - 1) return true;
+      }
+    }
+  }
+  return false;
+}
+
+/**
+ * Determines whether a candidate fence (r, c, ori) overlaps or intersects any placed fence.
+ */
+function isFenceOverlap(r, c, ori, testFences = fences) {
+  if (r < 0 || r > GRID_SIZE - 2 || c < 0 || c > GRID_SIZE - 2) return true;
+
+  for (const f of testFences) {
+    // Cannot cross at the same intersection point
+    if (f.r === r && f.c === c) return true;
+
+    // Overlapping horizontal fence
+    if (ori === 'H' && f.ori === 'H') {
+      if (f.r === r && (f.c === c || f.c === c - 1 || f.c === c + 1)) return true;
+    }
+
+    // Overlapping vertical fence
+    if (ori === 'V' && f.ori === 'V') {
+      if (f.c === c && (f.r === r || f.r === r - 1 || f.r === r + 1)) return true;
+    }
+  }
+  return false;
+}
+
+/**
+ * BFS Pathfinding to verify if a player has at least 1 path to their goal row.
+ * P1 (Blue) goal: row 0.
+ * P2 (Pink) goal: row 6.
+ */
+function hasPathToGoal(playerIdx, startPos, testFences = fences) {
+  const goalRow = playerIdx === 0 ? 0 : 6;
+  const q = [{ r: startPos.r, c: startPos.c }];
+  const visited = Array.from({ length: GRID_SIZE }, () => Array(GRID_SIZE).fill(false));
+  visited[startPos.r][startPos.c] = true;
+
+  const dirs = [
+    { dr: -1, dc: 0 },
+    { dr: 1, dc: 0 },
+    { dr: 0, dc: -1 },
+    { dr: 0, dc: 1 }
+  ];
+
+  while (q.length > 0) {
+    const cur = q.shift();
+    if (cur.r === goalRow) return true;
+
+    for (const d of dirs) {
+      const nr = cur.r + d.dr, nc = cur.c + d.dc;
+      if (nr >= 0 && nr < GRID_SIZE && nc >= 0 && nc < GRID_SIZE && !visited[nr][nc]) {
+        if (!isEdgeBlocked(cur.r, cur.c, nr, nc, testFences)) {
+          visited[nr][nc] = true;
+          q.push({ r: nr, c: nc });
+        }
+      }
+    }
+  }
+  return false;
+}
+
+/**
+ * Full validation for candidate fence placement.
+ * Returns { valid: boolean, reason: string }
+ */
+function validateFence(r, c, ori) {
+  if (fencesLeft[turn] <= 0) {
+    return { valid: false, reason: 'no_fences' };
+  }
+  if (isFenceOverlap(r, c, ori, fences)) {
+    return { valid: false, reason: 'overlap' };
+  }
+
+  // Test no-trap rule for both players
+  const testFences = fences.concat([{ r, c, ori, owner: turn }]);
+  if (!hasPathToGoal(0, pawns[0], testFences) || !hasPathToGoal(1, pawns[1], testFences)) {
+    return { valid: false, reason: 'traps_player' };
+  }
+
+  return { valid: true };
+}
+
+/**
+ * Compute valid pawn moves for current player according to official Quoridor rules.
+ * Handles normal steps, straight leaps over opponent, and diagonal jumps when blocked behind opponent.
+ */
+function getValidMoves(playerIdx) {
+  const cur = pawns[playerIdx];
+  const opp = pawns[1 - playerIdx];
+  const moves = [];
+
+  const dirs = [
+    { dr: -1, dc: 0 }, // Up
+    { dr: 1, dc: 0 },  // Down
+    { dr: 0, dc: -1 }, // Left
+    { dr: 0, dc: 1 }   // Right
+  ];
+
+  for (const d of dirs) {
+    const nr = cur.r + d.dr, nc = cur.c + d.dc;
+    // Check board bounds
+    if (nr < 0 || nr >= GRID_SIZE || nc < 0 || nc >= GRID_SIZE) continue;
+
+    // Check if edge is blocked by a fence
+    if (isEdgeBlocked(cur.r, cur.c, nr, nc)) continue;
+
+    // If opponent is NOT on this tile, normal move
+    if (opp.r !== nr || opp.c !== nc) {
+      moves.push({ r: nr, c: nc, isJump: false });
+    } else {
+      // Opponent IS on this tile: jump over opponent!
+      const jnr = nr + d.dr, jnc = nc + d.dc;
+      const straightJumpInBounds = jnr >= 0 && jnr < GRID_SIZE && jnc >= 0 && jnc < GRID_SIZE;
+      const straightJumpBlocked = !straightJumpInBounds || isEdgeBlocked(nr, nc, jnr, jnc);
+
+      if (!straightJumpBlocked) {
+        // Can leap straight over opponent!
+        moves.push({ r: jnr, c: jnc, isJump: true });
+      } else {
+        // Straight jump is blocked by a fence or board edge: diagonal jumps allowed!
+        let sideDirs = [];
+        if (d.dr !== 0) {
+          // Moving vertically: perpendicular sides are Left and Right
+          sideDirs = [{ dr: 0, dc: -1 }, { dr: 0, dc: 1 }];
+        } else {
+          // Moving horizontally: perpendicular sides are Up and Down
+          sideDirs = [{ dr: -1, dc: 0 }, { dr: 1, dc: 0 }];
+        }
+
+        for (const sd of sideDirs) {
+          const dnr = nr + sd.dr, dnc = nc + sd.dc;
+          if (dnr >= 0 && dnr < GRID_SIZE && dnc >= 0 && dnc < GRID_SIZE) {
+            if (!isEdgeBlocked(nr, nc, dnr, dnc)) {
+              moves.push({ r: dnr, c: dnc, isJump: true });
+            }
+          }
+        }
+      }
+    }
+  }
+
+  return moves;
+}
+
+function updateValidMoves() {
+  if (winner !== -1) {
+    validMoves = [];
+    return;
+  }
+  validMoves = getValidMoves(turn);
+}
+
+/* ==========================================================================
+   GAMEPLAY ACTIONS
+   ========================================================================== */
+function executeMove(destR, destC, isJump) {
+  if (winner !== -1) return false;
+  const p = pawns[turn];
+  const startPos = tileCenter(p.r, p.c);
+  const endPos = tileCenter(destR, destC);
+
+  p.r = destR;
+  p.c = destC;
+  p.animX = startPos.x - endPos.x;
+  p.animY = startPos.y - endPos.y;
+  p.jump = isJump ? 1.4 : 1.0;
+
+  if (isJump) SFX.jump();
+  else SFX.step();
+
+  burst(endPos.x, endPos.y, turn === 0 ? PALETTE.p1.main : PALETTE.p2.main, 10, 80, 5);
+
+  // Check victory: P1 reached row 0, P2 reached row 6
+  const goalRow = turn === 0 ? 0 : 6;
+  if (destR === goalRow) {
+    winner = turn;
+    winTime = time;
+    SFX.win();
+    burst(endPos.x, endPos.y, '#ffd700', 36, 180, 8);
+    validMoves = [];
+    return true;
+  }
+
+  // Switch turn
+  turn = 1 - turn;
+  // If in fence mode but player has no fences, switch to move mode
+  if (actionMode === 'fence' && fencesLeft[turn] <= 0) {
+    actionMode = 'move';
+  }
+  updateValidMoves();
+  return true;
+}
+
+function executePlaceFence(r, c, ori) {
+  if (winner !== -1) return false;
+  const check = validateFence(r, c, ori);
+  if (!check.valid) {
+    SFX.invalid();
+    return false;
+  }
+
+  fences.push({ r, c, ori, owner: turn });
+  fencesLeft[turn]--;
+  SFX.fence();
+
+  const gc = grooveCenter(r, c);
+  burst(gc.x, gc.y, PALETTE.fenceTop, 14, 110, 6);
+
+  // Switch turn
+  turn = 1 - turn;
+  if (actionMode === 'fence' && fencesLeft[turn] <= 0) {
+    actionMode = 'move';
+  }
+  updateValidMoves();
+  return true;
+}
+
+function resetGame() {
+  winner = -1;
+  turn = 0;
+  pawns = [
+    { r: 6, c: 3, animX: 0, animY: 0, jump: 0 },
+    { r: 0, c: 3, animX: 0, animY: 0, jump: 0 }
+  ];
+  fencesLeft = [TOTAL_FENCES, TOTAL_FENCES];
+  fences = [];
+  actionMode = 'move';
+  fenceOrientation = 'H';
+  cursorTile = { r: 6, c: 3 };
+  cursorGroove = { r: 2, c: 2 };
+  updateValidMoves();
+  SFX.click();
+}
+
+/* ==========================================================================
+   INPUT HANDLING (MOUSE / TOUCH & KEYBOARD)
+   ========================================================================== */
+function getTileAtPoint(px, py) {
+  for (let r = 0; r < GRID_SIZE; r++) {
+    for (let c = 0; c < GRID_SIZE; c++) {
+      const tc = tileCenter(r, c);
+      const half = BOARD.tileSize / 2;
+      if (px >= tc.x - half && px <= tc.x + half && py >= tc.y - half && py <= tc.y + half) {
+        return { r, c };
+      }
+    }
+  }
+  return null;
+}
+
+function getGrooveAtPoint(px, py) {
+  // Check intersection grooves 0..5, 0..5
+  const hitRadius = BOARD.tileSize * 0.7;
+  let best = null, bestDist = hitRadius;
+
+  for (let r = 0; r < GRID_SIZE - 1; r++) {
+    for (let c = 0; c < GRID_SIZE - 1; c++) {
+      const gc = grooveCenter(r, c);
+      const d = Math.hypot(px - gc.x, py - gc.y);
+      if (d < bestDist) {
+        bestDist = d;
+        best = { r, c };
+      }
+    }
+  }
+  return best;
+}
+
+// Side Action Buttons Bounding Boxes
+function getButtons() {
+  const isP1 = turn === 0;
+  const panelX = isP1 ? 165 : 1115;
+  const baseY = 490;
+  return {
+    moveBtn: { x: panelX - 95, y: baseY, w: 190, h: 42, label: '🐾 MOVE PAWN' },
+    fenceBtn: { x: panelX - 95, y: baseY + 50, w: 190, h: 42, label: `🪵 PLACE FENCE (${fencesLeft[turn]})` },
+    rotateBtn: { x: panelX - 95, y: baseY + 100, w: 190, h: 40, label: fenceOrientation === 'H' ? '🔄 HORIZONTAL' : '🔄 VERTICAL' },
+    restartBtn: { x: W / 2 - 100, y: 652, w: 200, h: 46, label: '⚡ PLAY AGAIN' }
+  };
+}
+
+cv.addEventListener('pointermove', e => {
+  mousePos = getCanvasPos(e);
+  hoveredTile = getTileAtPoint(mousePos.x, mousePos.y);
+  hoveredGroove = getGrooveAtPoint(mousePos.x, mousePos.y);
+
+  // Determine cursor pointer style
+  const btns = getButtons();
+  let pointer = false;
+  if (winner !== -1) {
+    const b = btns.restartBtn;
+    if (mousePos.x >= b.x && mousePos.x <= b.x + b.w && mousePos.y >= b.y && mousePos.y <= b.y + b.h) pointer = true;
+  } else {
+    // Check buttons
+    for (const key of ['moveBtn', 'fenceBtn', 'rotateBtn']) {
+      const b = btns[key];
+      if (mousePos.x >= b.x && mousePos.x <= b.x + b.w && mousePos.y >= b.y && mousePos.y <= b.y + b.h) pointer = true;
+    }
+    // Check board elements
+    if (actionMode === 'move' && hoveredTile) {
+      if (validMoves.some(m => m.r === hoveredTile.r && m.c === hoveredTile.c)) pointer = true;
+    } else if (actionMode === 'fence' && hoveredGroove && fencesLeft[turn] > 0) {
+      const val = validateFence(hoveredGroove.r, hoveredGroove.c, fenceOrientation);
+      if (val.valid) pointer = true;
+    }
+  }
+  cv.style.cursor = pointer ? 'pointer' : 'default';
+});
+
+cv.addEventListener('pointerdown', e => {
+  audio();
+  const p = getCanvasPos(e);
+
+  // If match won, check play again button or anywhere click after 1s
+  if (winner !== -1) {
+    const b = getButtons().restartBtn;
+    if (p.x >= b.x && p.x <= b.x + b.w && p.y >= b.y && p.y <= b.y + b.h) {
+      resetGame();
+      return;
+    }
+    if (time - winTime > 1.2) {
+      resetGame();
+      return;
+    }
+    return;
+  }
+
+  // Check UI buttons on current player side
+  const btns = getButtons();
+  if (p.x >= btns.moveBtn.x && p.x <= btns.moveBtn.x + btns.moveBtn.w && p.y >= btns.moveBtn.y && p.y <= btns.moveBtn.y + btns.moveBtn.h) {
+    actionMode = 'move';
+    SFX.click();
+    return;
+  }
+  if (p.x >= btns.fenceBtn.x && p.x <= btns.fenceBtn.x + btns.fenceBtn.w && p.y >= btns.fenceBtn.y && p.y <= btns.fenceBtn.y + btns.fenceBtn.h) {
+    if (fencesLeft[turn] > 0) {
+      actionMode = 'fence';
+      SFX.click();
+    } else {
+      SFX.invalid();
+    }
+    return;
+  }
+  if (p.x >= btns.rotateBtn.x && p.x <= btns.rotateBtn.x + btns.rotateBtn.w && p.y >= btns.rotateBtn.y && p.y <= btns.rotateBtn.y + btns.rotateBtn.h) {
+    fenceOrientation = fenceOrientation === 'H' ? 'V' : 'H';
+    SFX.rotate();
+    return;
+  }
+
+  // Right click on board toggles fence orientation
+  if (e.button === 2) {
+    e.preventDefault();
+    fenceOrientation = fenceOrientation === 'H' ? 'V' : 'H';
+    SFX.rotate();
+    return;
+  }
+
+  // Board Interactions
+  if (actionMode === 'move') {
+    const t = getTileAtPoint(p.x, p.y);
+    if (t) {
+      const match = validMoves.find(m => m.r === t.r && m.c === t.c);
+      if (match) {
+        executeMove(match.r, match.c, match.isJump);
+        return;
+      }
+    }
+    // Contextual switch: if player clicked in groove zone, switch to fence placement
+    const g = getGrooveAtPoint(p.x, p.y);
+    if (g && fencesLeft[turn] > 0) {
+      const val = validateFence(g.r, g.c, fenceOrientation);
+      if (val.valid) {
+        executePlaceFence(g.r, g.c, fenceOrientation);
+        return;
+      }
+    }
+  } else if (actionMode === 'fence') {
+    const g = getGrooveAtPoint(p.x, p.y);
+    if (g) {
+      executePlaceFence(g.r, g.c, fenceOrientation);
+      return;
+    }
+    // Contextual switch: if player clicked a valid move tile, allow move
+    const t = getTileAtPoint(p.x, p.y);
+    if (t) {
+      const match = validMoves.find(m => m.r === t.r && m.c === t.c);
+      if (match) {
+        executeMove(match.r, match.c, match.isJump);
+        return;
+      }
+    }
+  }
+});
+
+cv.addEventListener('contextmenu', e => e.preventDefault());
+
+// Keyboard Input
+addEventListener('keydown', e => {
+  audio();
+  if (['ArrowUp', 'ArrowDown', 'ArrowLeft', 'ArrowRight', 'Space', 'Enter', 'Tab'].includes(e.code)) {
+    e.preventDefault();
+  }
+
+  if (winner !== -1) {
+    if (e.code === 'Space' || e.code === 'Enter') resetGame();
+    return;
+  }
+
+  // Rotate fence orientation
+  if (e.code === 'KeyR') {
+    fenceOrientation = fenceOrientation === 'H' ? 'V' : 'H';
+    SFX.rotate();
+    return;
+  }
+
+  // Toggle mode (Tab, M, F)
+  if (e.code === 'Tab' || e.code === 'KeyM' || e.code === 'KeyF') {
+    if (actionMode === 'move') {
+      if (fencesLeft[turn] > 0) actionMode = 'fence';
+    } else {
+      actionMode = 'move';
+    }
+    SFX.click();
+    return;
+  }
+
+  // Movement & Grooves directional navigation
+  if (actionMode === 'move') {
+    let dr = 0, dc = 0;
+    if (e.code === 'ArrowUp' || e.code === 'KeyW') dr--;
+    if (e.code === 'ArrowDown' || e.code === 'KeyS') dr++;
+    if (e.code === 'ArrowLeft' || e.code === 'KeyA') dc--;
+    if (e.code === 'ArrowRight' || e.code === 'KeyD') dc++;
+
+    if (dr !== 0 || dc !== 0) {
+      const targetR = clamp(cursorTile.r + dr, 0, GRID_SIZE - 1);
+      const targetC = clamp(cursorTile.c + dc, 0, GRID_SIZE - 1);
+      cursorTile = { r: targetR, c: targetC };
+      SFX.click();
+    }
+
+    if (e.code === 'Space' || e.code === 'Enter') {
+      const match = validMoves.find(m => m.r === cursorTile.r && m.c === cursorTile.c);
+      if (match) {
+        executeMove(match.r, match.c, match.isJump);
+      } else {
+        SFX.invalid();
+      }
+    }
+  } else if (actionMode === 'fence') {
+    let dr = 0, dc = 0;
+    if (e.code === 'ArrowUp' || e.code === 'KeyW') dr--;
+    if (e.code === 'ArrowDown' || e.code === 'KeyS') dr++;
+    if (e.code === 'ArrowLeft' || e.code === 'KeyA') dc--;
+    if (e.code === 'ArrowRight' || e.code === 'KeyD') dc++;
+
+    if (dr !== 0 || dc !== 0) {
+      const targetR = clamp(cursorGroove.r + dr, 0, GRID_SIZE - 2);
+      const targetC = clamp(cursorGroove.c + dc, 0, GRID_SIZE - 2);
+      cursorGroove = { r: targetR, c: targetC };
+      SFX.click();
+    }
+
+    if (e.code === 'Space' || e.code === 'Enter') {
+      executePlaceFence(cursorGroove.r, cursorGroove.c, fenceOrientation);
+    }
+  }
+});
+
+/* ==========================================================================
+   RENDER PIPELINE (ANTI-MOTION SICKNESS: 100% STATIC BOARD & CAMERA)
+   ========================================================================== */
+
+function drawTabletop() {
+  // Rich warm tabletop felt / wood
+  const bg = ctx.createRadialGradient(W / 2, H / 2, 80, W / 2, H / 2, 700);
+  bg.addColorStop(0, '#2e4738');
+  bg.addColorStop(0.7, '#1f3327');
+  bg.addColorStop(1, '#111d16');
+  ctx.fillStyle = bg;
+  ctx.fillRect(0, 0, W, H);
+
+  // Soft board drop shadow
+  ctx.save();
+  ctx.shadowColor = 'rgba(0,0,0,0.5)';
+  ctx.shadowBlur = 36;
+  ctx.shadowOffsetY = 16;
+  rr(ctx, BOARD.x0 - 24, BOARD.y0 - 24, BOARD.totalW + 48, BOARD.totalH + 48, 22);
+  ctx.fillStyle = '#3a2010';
+  ctx.fill();
+  ctx.restore();
+
+  // Wooden board frame
+  const fg = ctx.createLinearGradient(BOARD.x0 - 24, 0, BOARD.x0 + BOARD.totalW + 24, 0);
+  fg.addColorStop(0, '#5a3418');
+  fg.addColorStop(0.5, '#744522');
+  fg.addColorStop(1, '#4e2d14');
+  ctx.fillStyle = fg;
+  rr(ctx, BOARD.x0 - 24, BOARD.y0 - 24, BOARD.totalW + 48, BOARD.totalH + 48, 22);
+  ctx.fill();
+  ctx.strokeStyle = '#2d1808';
+  ctx.lineWidth = 3;
+  ctx.stroke();
+
+  // Board inner recessed surface
+  rr(ctx, BOARD.x0 - 8, BOARD.y0 - 8, BOARD.totalW + 16, BOARD.totalH + 16, 12);
+  ctx.fillStyle = '#bfa175';
+  ctx.fill();
+  ctx.strokeStyle = '#8c6e45';
+  ctx.lineWidth = 2.5;
+  ctx.stroke();
+
+  // 4 Corner Brass Inlays
+  const corners = [
+    [BOARD.x0 - 16, BOARD.y0 - 16],
+    [BOARD.x0 + BOARD.totalW + 16, BOARD.y0 - 16],
+    [BOARD.x0 - 16, BOARD.y0 + BOARD.totalH + 16],
+    [BOARD.x0 + BOARD.totalW + 16, BOARD.y0 + BOARD.totalH + 16]
+  ];
+  corners.forEach(([cx, cy]) => {
+    ctx.fillStyle = '#ffd54f';
+    circle(cx, cy, 6); ctx.fill();
+    ctx.strokeStyle = '#b28900'; ctx.lineWidth = 1.5; ctx.stroke();
+  });
+}
+
+function drawFlag(x, y, col, dirUp) {
+  ctx.save();
+  ctx.translate(x, y);
+  // Pole
+  ctx.strokeStyle = '#4a2f1b';
+  ctx.lineWidth = 2.5;
+  ctx.beginPath();
+  ctx.moveTo(0, 10);
+  ctx.lineTo(0, -12);
+  ctx.stroke();
+
+  // Pennant
+  ctx.fillStyle = col;
+  ctx.beginPath();
+  ctx.moveTo(0, -12);
+  ctx.lineTo(14, -6);
+  ctx.lineTo(0, 0);
+  ctx.closePath();
+  ctx.fill();
+  ctx.strokeStyle = '#fff';
+  ctx.lineWidth = 1;
+  ctx.stroke();
+  ctx.restore();
+}
+
+function drawBoardGrid() {
+  // Goal Row Indicator Highlights
+  // Row 0 = Blue Sheep's Goal Line
+  // Row 6 = Pink Sheep's Goal Line
+  const row0Y = BOARD.y0;
+  const row6Y = BOARD.y0 + 6 * (BOARD.tileSize + BOARD.groove);
+
+  // Subtle goal glow bars
+  ctx.fillStyle = 'rgba(59, 130, 246, 0.18)';
+  rr(ctx, BOARD.x0 - 2, row0Y - 2, BOARD.totalW + 4, BOARD.tileSize + 4, 8);
+  ctx.fill();
+
+  ctx.fillStyle = 'rgba(236, 72, 153, 0.18)';
+  rr(ctx, BOARD.x0 - 2, row6Y - 2, BOARD.totalW + 4, BOARD.tileSize + 4, 8);
+  ctx.fill();
+
+  // Draw 49 Tiles
+  for (let r = 0; r < GRID_SIZE; r++) {
+    for (let c = 0; c < GRID_SIZE; c++) {
+      const tc = tileCenter(r, c);
+      const half = BOARD.tileSize / 2;
+
+      // Base tile plate
+      rr(ctx, tc.x - half, tc.y - half, BOARD.tileSize, BOARD.tileSize, 8);
+      ctx.fillStyle = PALETTE.tileBase;
+      ctx.fill();
+
+      // Soft top bevel highlight
+      ctx.fillStyle = '#faf3e8';
+      rr(ctx, tc.x - half + 2, tc.y - half + 2, BOARD.tileSize - 4, BOARD.tileSize * 0.45, 6);
+      ctx.fill();
+
+      // Tile border
+      ctx.strokeStyle = PALETTE.tileBevel;
+      ctx.lineWidth = 2;
+      rr(ctx, tc.x - half, tc.y - half, BOARD.tileSize, BOARD.tileSize, 8);
+      ctx.stroke();
+
+      // Goal flags indicator icons on goal lines
+      if (r === 0) {
+        // Blue flag marker on top row
+        drawFlag(tc.x - half + 14, tc.y - half + 16, PALETTE.p1.main, true);
+      } else if (r === 6) {
+        // Pink flag marker on bottom row
+        drawFlag(tc.x - half + 14, tc.y - half + 16, PALETTE.p2.main, false);
+      }
+    }
+  }
+
+  // Draw Grooves / Grid Channels
+  ctx.fillStyle = PALETTE.groove;
+  // Horizontal grooves
+  for (let r = 0; r < GRID_SIZE - 1; r++) {
+    const gy = BOARD.y0 + (r + 1) * BOARD.tileSize + r * BOARD.groove;
+    rr(ctx, BOARD.x0, gy, BOARD.totalW, BOARD.groove, 3);
+    ctx.fill();
+  }
+  // Vertical grooves
+  for (let c = 0; c < GRID_SIZE - 1; c++) {
+    const gx = BOARD.x0 + (c + 1) * BOARD.tileSize + c * BOARD.groove;
+    rr(ctx, gx, BOARD.y0, BOARD.groove, BOARD.totalH, 3);
+    ctx.fill();
+  }
+
+  // Valid Pawn Move Halos (if in Move mode)
+  if (winner === -1 && actionMode === 'move') {
+    const activeCol = turn === 0 ? PALETTE.p1.main : PALETTE.p2.main;
+    for (const vm of validMoves) {
+      const tc = tileCenter(vm.r, vm.c);
+      const isHover = hoveredTile && hoveredTile.r === vm.r && hoveredTile.c === vm.c;
+      const isKeyCursor = cursorTile.r === vm.r && cursorTile.c === vm.c;
+
+      ctx.save();
+      ctx.strokeStyle = activeCol;
+      ctx.lineWidth = isHover || isKeyCursor ? 4.5 : 3;
+      if (vm.isJump) {
+        ctx.setLineDash([6, 4]);
+      }
+      rr(ctx, tc.x - BOARD.tileSize / 2 + 3, tc.y - BOARD.tileSize / 2 + 3, BOARD.tileSize - 6, BOARD.tileSize - 6, 8);
+      ctx.stroke();
+
+      // Soft pulsating inner halo
+      ctx.fillStyle = turn === 0 ? 'rgba(59, 130, 246, 0.28)' : 'rgba(236, 72, 153, 0.28)';
+      ctx.fill();
+
+      // Footstep icon in center
+      ctx.fillStyle = activeCol;
+      circle(tc.x, tc.y, isHover ? 6.5 : 5);
+      ctx.fill();
+      ctx.restore();
+    }
+  }
+}
+
+/* ==========================================================================
+   FENCE RENDERING (PLACED & PREVIEW)
+   ========================================================================== */
+function drawSingleFence(r, c, ori, owner, isPreview = false, isValid = true) {
+  const gc = grooveCenter(r, c);
+  const ts = BOARD.tileSize, g = BOARD.groove;
+
+  // Horizontal fence: spans 2 tiles wide (2 * ts + g) x g
+  // Vertical fence: spans 2 tiles high g x (2 * ts + g)
+  const len = 2 * ts + g;
+  const thick = g;
+
+  let fx, fy, fw, fh;
+  if (ori === 'H') {
+    fx = gc.x - len / 2;
+    fy = gc.y - thick / 2;
+    fw = len;
+    fh = thick;
+  } else {
+    fx = gc.x - thick / 2;
+    fy = gc.y - len / 2;
+    fw = thick;
+    fh = len;
+  }
+
+  ctx.save();
+
+  if (isPreview) {
+    ctx.globalAlpha = 0.78;
+    if (isValid) {
+      ctx.fillStyle = '#65a30d'; // Clean green
+      ctx.strokeStyle = '#ecfccb';
+    } else {
+      ctx.fillStyle = '#dc2626'; // Red for blocked/illegal
+      ctx.strokeStyle = '#fee2e2';
+    }
+    rr(ctx, fx, fy, fw, fh, 4);
+    ctx.fill();
+    ctx.lineWidth = 2.5;
+    ctx.stroke();
+
+    // Cross icon if invalid
+    if (!isValid) {
+      ctx.strokeStyle = '#ffffff';
+      ctx.lineWidth = 3;
+      ctx.beginPath();
+      ctx.moveTo(gc.x - 7, gc.y - 7); ctx.lineTo(gc.x + 7, gc.y + 7);
+      ctx.moveTo(gc.x + 7, gc.y - 7); ctx.lineTo(gc.x - 7, gc.y + 7);
+      ctx.stroke();
+    }
+    ctx.restore();
+    return;
+  }
+
+  // Placed Fence: tactile 3D wood styling
+  // Cast shadow
+  ctx.fillStyle = 'rgba(0, 0, 0, 0.35)';
+  rr(ctx, fx + 2, fy + 4, fw, fh, 4);
+  ctx.fill();
+
+  // Fence body
+  const woodGrad = ctx.createLinearGradient(fx, fy, fx + (ori === 'V' ? fw : 0), fy + (ori === 'H' ? fh : 0));
+  woodGrad.addColorStop(0, '#5a2f10');
+  woodGrad.addColorStop(0.35, '#874d1e');
+  woodGrad.addColorStop(0.7, '#6b3c16');
+  woodGrad.addColorStop(1, '#47240c');
+  ctx.fillStyle = woodGrad;
+  rr(ctx, fx, fy, fw, fh, 4);
+  ctx.fill();
+
+  // Fence border
+  ctx.strokeStyle = '#381c08';
+  ctx.lineWidth = 1.5;
+  rr(ctx, fx, fy, fw, fh, 4);
+  ctx.stroke();
+
+  // 3 Golden or colored metal rivets along fence plank
+  const ownerCol = owner === 0 ? PALETTE.p1.main : PALETTE.p2.main;
+  ctx.fillStyle = ownerCol;
+  if (ori === 'H') {
+    const rivets = [fx + 12, fx + fw / 2, fx + fw - 12];
+    rivets.forEach(rx => {
+      circle(rx, fy + fh / 2, 2.5); ctx.fill();
+    });
+  } else {
+    const rivets = [fy + 12, fy + fh / 2, fy + fh - 12];
+    rivets.forEach(ry => {
+      circle(fx + fw / 2, ry, 2.5); ctx.fill();
+    });
+  }
+
+  ctx.restore();
+}
+
+function drawFences() {
+  // 1. Placed Fences
+  for (const f of fences) {
+    drawSingleFence(f.r, f.c, f.ori, f.owner, false);
+  }
+
+  // 2. Hover / Keyboard Fence Placement Preview
+  if (winner === -1 && fencesLeft[turn] > 0) {
+    let targetGroove = null;
+    if (actionMode === 'fence') {
+      targetGroove = hoveredGroove || cursorGroove;
+    } else if (hoveredGroove) {
+      // Contextual preview if user points at groove even while in move mode
+      targetGroove = hoveredGroove;
+    }
+
+    if (targetGroove) {
+      const val = validateFence(targetGroove.r, targetGroove.c, fenceOrientation);
+      drawSingleFence(targetGroove.r, targetGroove.c, fenceOrientation, turn, true, val.valid);
+    }
+  }
+}
+
+/* ==========================================================================
+   CUTE SHEEP CHARACTERS (BLUE SHEEP & PINK SHEEP)
+   ========================================================================== */
+function drawCuteSheep(cx, cy, radius, playerIdx, isWinner = false) {
+  const p = playerIdx === 0 ? PALETTE.p1 : PALETTE.p2;
+  const isBlue = playerIdx === 0;
+
+  ctx.save();
+  ctx.translate(cx, cy);
+
+  // Soft drop shadow
+  ctx.fillStyle = 'rgba(0, 0, 0, 0.22)';
+  ctx.beginPath();
+  ctx.ellipse(0, radius * 0.78, radius * 0.85, radius * 0.32, 0, 0, TAU);
+  ctx.fill();
+
+  // Fluffy Wool Cloud puffs
+  ctx.fillStyle = isBlue ? '#ebf4ff' : '#fdf2f8';
+  ctx.strokeStyle = isBlue ? '#93c5fd' : '#f9a8d4';
+  ctx.lineWidth = 2.5;
+
+  const puffs = [
+    [-radius * 0.48, -radius * 0.32, radius * 0.42],
+    [radius * 0.48, -radius * 0.32, radius * 0.42],
+    [-radius * 0.58, radius * 0.12, radius * 0.44],
+    [radius * 0.58, radius * 0.12, radius * 0.44],
+    [0, -radius * 0.55, radius * 0.48],
+    [-radius * 0.28, radius * 0.45, radius * 0.38],
+    [radius * 0.28, radius * 0.45, radius * 0.38],
+    [0, 0, radius * 0.65]
+  ];
+
+  puffs.forEach(([px, py, pr]) => {
+    circle(px, py, pr); ctx.fill(); ctx.stroke();
+  });
+
+  // Floppy Ears
+  for (const s of [-1, 1]) {
+    ctx.save();
+    ctx.translate(s * radius * 0.68, -radius * 0.08);
+    ctx.rotate(s * 0.35);
+    ctx.fillStyle = isBlue ? '#bfdbfe' : '#fbcfe8';
+    ctx.strokeStyle = p.dark;
+    ctx.lineWidth = 2;
+    ctx.beginPath();
+    ctx.ellipse(0, 0, radius * 0.24, radius * 0.42, 0, 0, TAU);
+    ctx.fill(); ctx.stroke();
+
+    // Inner ear
+    ctx.fillStyle = '#ffb3c6';
+    ctx.beginPath();
+    ctx.ellipse(0, 0, radius * 0.12, radius * 0.25, 0, 0, TAU);
+    ctx.fill();
+    ctx.restore();
+  }
+
+  // Smooth Sheep Face
+  const faceR = radius * 0.52;
+  const fg = ctx.createRadialGradient(0, -radius * 0.1, 2, 0, 0, faceR);
+  fg.addColorStop(0, '#ffffff');
+  fg.addColorStop(0.75, isBlue ? '#e0f2fe' : '#fce7f3');
+  fg.addColorStop(1, isBlue ? '#bae6fd' : '#fbcfe8');
+  ctx.fillStyle = fg;
+  ctx.strokeStyle = p.dark;
+  ctx.lineWidth = 2.5;
+  ctx.beginPath();
+  ctx.ellipse(0, radius * 0.05, faceR, faceR * 0.92, 0, 0, TAU);
+  ctx.fill(); ctx.stroke();
+
+  // Expressive Big Cute Eyes
+  const eyeX = radius * 0.22, eyeY = -radius * 0.04;
+  for (const s of [-1, 1]) {
+    const ex = s * eyeX;
+    // Eye white
+    ctx.fillStyle = '#ffffff';
+    circle(ex, eyeY, 6.5); ctx.fill();
+    // Dark pupil
+    ctx.fillStyle = '#1e293b';
+    circle(ex, eyeY, 4.2); ctx.fill();
+    // Sparkle glint
+    ctx.fillStyle = '#ffffff';
+    circle(ex - 1.5, eyeY - 1.5, 1.8); ctx.fill();
+  }
+
+  // Cute rosy blush cheeks
+  ctx.fillStyle = isBlue ? 'rgba(96, 165, 250, 0.45)' : 'rgba(244, 114, 182, 0.55)';
+  circle(-radius * 0.32, radius * 0.14, 5); ctx.fill();
+  circle(radius * 0.32, radius * 0.14, 5); ctx.fill();
+
+  // Little black nose & happy mouth
+  ctx.fillStyle = '#1e293b';
+  circle(0, radius * 0.12, 3); ctx.fill();
+
+  ctx.strokeStyle = '#1e293b';
+  ctx.lineWidth = 1.8;
+  ctx.lineCap = 'round';
+  ctx.beginPath();
+  ctx.arc(0, radius * 0.16, 4.5, 0.1, Math.PI - 0.1);
+  ctx.stroke();
+
+  // Collar Ribbon / Bell
+  ctx.fillStyle = p.main;
+  rr(ctx, -radius * 0.35, radius * 0.42, radius * 0.7, 7, 3);
+  ctx.fill();
+  ctx.fillStyle = '#ffd54f';
+  circle(0, radius * 0.46 + 4, 4); ctx.fill();
+  ctx.strokeStyle = '#b28900'; ctx.lineWidth = 1; ctx.stroke();
+
+  // Winner Crown
+  if (isWinner) {
+    ctx.save();
+    ctx.translate(0, -radius * 0.85);
+    ctx.fillStyle = '#ffd54f';
+    ctx.strokeStyle = '#c67100';
+    ctx.lineWidth = 2.5;
+    ctx.beginPath();
+    ctx.moveTo(-18, 6);
+    ctx.lineTo(-22, -12);
+    ctx.lineTo(-9, -2);
+    ctx.lineTo(0, -16);
+    ctx.lineTo(9, -2);
+    ctx.lineTo(22, -12);
+    ctx.lineTo(18, 6);
+    ctx.closePath();
+    ctx.fill(); ctx.stroke();
+    // Rubies
+    ctx.fillStyle = '#ef4444';
+    circle(0, -5, 2.5); ctx.fill();
+    circle(-14, -4, 2); ctx.fill();
+    circle(14, -4, 2); ctx.fill();
+    ctx.restore();
+  }
+
+  ctx.restore();
+}
+
+function drawPawns() {
+  for (let i = 0; i < 2; i++) {
+    const p = pawns[i];
+    const tc = tileCenter(p.r, p.c);
+
+    // Smooth movement interpolation
+    p.animX = lerp(p.animX, 0, 0.22);
+    p.animY = lerp(p.animY, 0, 0.22);
+    const hop = Math.abs(p.animX) + Math.abs(p.animY);
+    const hopH = Math.sin(clamp(hop / 50, 0, 1) * Math.PI) * (p.jump * 18);
+
+    const x = tc.x + p.animX;
+    const y = tc.y + p.animY - hopH;
+
+    // Active player highlight halo
+    if (winner === -1 && turn === i) {
+      ctx.save();
+      const pCol = i === 0 ? PALETTE.p1.main : PALETTE.p2.main;
+      ctx.strokeStyle = pCol;
+      ctx.lineWidth = 3.5;
+      circle(tc.x, tc.y, BOARD.tileSize * 0.44);
+      ctx.stroke();
+      ctx.restore();
+    }
+
+    drawCuteSheep(x, y, 26, i, winner === i);
+  }
+}
+
+/* ==========================================================================
+   SIDE PANELS (PLAYER 1 & PLAYER 2 CARDS)
+   ========================================================================== */
+function drawPlayerCard(playerIdx) {
+  const isP1 = playerIdx === 0;
+  const p = isP1 ? PALETTE.p1 : PALETTE.p2;
+  const isTurn = winner === -1 && turn === playerIdx;
+
+  const panelX = isP1 ? 165 : 1115;
+  const w = 270, h = 570;
+  const x0 = panelX - w / 2, y0 = 85;
+
+  ctx.save();
+
+  // Panel background plate
+  rr(ctx, x0, y0, w, h, 20);
+  ctx.fillStyle = isTurn ? 'rgba(255, 255, 255, 0.94)' : 'rgba(255, 255, 255, 0.82)';
+  ctx.fill();
+  ctx.strokeStyle = isTurn ? p.main : 'rgba(0, 0, 0, 0.15)';
+  ctx.lineWidth = isTurn ? 4 : 2;
+  ctx.stroke();
+
+  // Header Avatar
+  const avatarY = y0 + 72;
+  drawCuteSheep(panelX, avatarY, 44, playerIdx, winner === playerIdx);
+
+  // Player Name & Turn Badge
+  ctx.font = `900 20px ${FONT}`;
+  ctx.textAlign = 'center';
+  ctx.textBaseline = 'middle';
+  ctx.fillStyle = p.dark;
+  ctx.fillText(p.name, panelX, y0 + 138);
+
+  // Goal direction banner
+  ctx.font = `700 12px ${FONT}`;
+  ctx.fillStyle = '#475569';
+  const goalText = isP1 ? '⬆ GOAL: TOP ROW' : '⬇ GOAL: BOTTOM ROW';
+  ctx.fillText(goalText, panelX, y0 + 162);
+
+  // Divider
+  ctx.strokeStyle = 'rgba(0, 0, 0, 0.08)';
+  ctx.lineWidth = 2;
+  ctx.beginPath();
+  ctx.moveTo(x0 + 20, y0 + 180); ctx.lineTo(x0 + w - 20, y0 + 180);
+  ctx.stroke();
+
+  // FENCE TOKENS INVENTORY (6 slots)
+  ctx.font = `900 13px ${FONT}`;
+  ctx.fillStyle = '#334155';
+  ctx.fillText(`FENCES REMAINING: ${fencesLeft[playerIdx]} / ${TOTAL_FENCES}`, panelX, y0 + 204);
+
+  const tokenY = y0 + 225;
+  for (let k = 0; k < TOTAL_FENCES; k++) {
+    const colIdx = k % 3;
+    const rowIdx = Math.floor(k / 3);
+    const fx = panelX - 70 + colIdx * 70;
+    const fy = tokenY + rowIdx * 32;
+    const available = k < fencesLeft[playerIdx];
+
+    ctx.save();
+    if (available) {
+      // Crisp 3D wooden miniature fence token
+      rr(ctx, fx - 24, fy - 8, 48, 16, 4);
+      const wg = ctx.createLinearGradient(0, fy - 8, 0, fy + 8);
+      wg.addColorStop(0, '#9e5d2b');
+      wg.addColorStop(1, '#542d10');
+      ctx.fillStyle = wg;
+      ctx.fill();
+      ctx.strokeStyle = '#381c08';
+      ctx.lineWidth = 1.5;
+      ctx.stroke();
+
+      // Mini rivet
+      ctx.fillStyle = p.main;
+      circle(fx - 14, fy, 2); ctx.fill();
+      circle(fx + 14, fy, 2); ctx.fill();
+    } else {
+      // Empty slot placeholder
+      rr(ctx, fx - 24, fy - 8, 48, 16, 4);
+      ctx.fillStyle = 'rgba(0,0,0,0.06)';
+      ctx.fill();
+      ctx.strokeStyle = 'rgba(0,0,0,0.12)';
+      ctx.lineWidth = 1.5;
+      ctx.setLineDash([4, 3]);
+      ctx.stroke();
+    }
+    ctx.restore();
+  }
+
+  // Divider
+  ctx.strokeStyle = 'rgba(0, 0, 0, 0.08)';
+  ctx.lineWidth = 2;
+  ctx.beginPath();
+  ctx.moveTo(x0 + 20, y0 + 300); ctx.lineTo(x0 + w - 20, y0 + 300);
+  ctx.stroke();
+
+  // ACTION CONTROLS (Only interactable on player's turn)
+  if (isTurn) {
+    const btns = getButtons();
+
+    // 1. Move Pawn Button
+    const isMoveActive = actionMode === 'move';
+    rr(ctx, btns.moveBtn.x, btns.moveBtn.y, btns.moveBtn.w, btns.moveBtn.h, 10);
+    ctx.fillStyle = isMoveActive ? p.main : '#f1f5f9';
+    ctx.fill();
+    ctx.strokeStyle = isMoveActive ? p.dark : '#cbd5e1';
+    ctx.lineWidth = 2;
+    ctx.stroke();
+    ctx.font = `900 14px ${FONT}`;
+    ctx.fillStyle = isMoveActive ? '#ffffff' : '#334155';
+    ctx.fillText(btns.moveBtn.label, panelX, btns.moveBtn.y + btns.moveBtn.h / 2);
+
+    // 2. Place Fence Button
+    const isFenceActive = actionMode === 'fence';
+    const canFence = fencesLeft[playerIdx] > 0;
+    rr(ctx, btns.fenceBtn.x, btns.fenceBtn.y, btns.fenceBtn.w, btns.fenceBtn.h, 10);
+    ctx.fillStyle = isFenceActive ? p.main : canFence ? '#f1f5f9' : '#e2e8f0';
+    ctx.fill();
+    ctx.strokeStyle = isFenceActive ? p.dark : '#cbd5e1';
+    ctx.lineWidth = 2;
+    ctx.stroke();
+    ctx.fillStyle = isFenceActive ? '#ffffff' : canFence ? '#334155' : '#94a3b8';
+    ctx.fillText(btns.fenceBtn.label, panelX, btns.fenceBtn.y + btns.fenceBtn.h / 2);
+
+    // 3. Rotate Orientation Button
+    rr(ctx, btns.rotateBtn.x, btns.rotateBtn.y, btns.rotateBtn.w, btns.rotateBtn.h, 10);
+    ctx.fillStyle = '#f8fafc';
+    ctx.fill();
+    ctx.strokeStyle = '#94a3b8';
+    ctx.lineWidth = 1.5;
+    ctx.stroke();
+    ctx.font = `800 13px ${FONT}`;
+    ctx.fillStyle = '#334155';
+    ctx.fillText(btns.rotateBtn.label, panelX, btns.rotateBtn.y + btns.rotateBtn.h / 2);
+  } else {
+    // Waiting state indicator
+    ctx.font = `700 14px ${FONT}`;
+    ctx.fillStyle = '#94a3b8';
+    ctx.fillText('⏳ WAITING FOR TURN', panelX, y0 + 440);
+  }
+
+  ctx.restore();
+}
+
+/* ==========================================================================
+   TOP TURN BANNER & BOTTOM HUD (ZERO MOTION SICKNESS - COMPLETELY STATIC)
+   ========================================================================== */
+function drawTopHeader() {
+  const cx = W / 2;
+
+  // Title
+  ctx.save();
+  ctx.font = `900 24px ${FONT}`;
+  ctx.textAlign = 'center';
+  ctx.textBaseline = 'middle';
+  ctx.fillStyle = '#ffffff';
+  ctx.fillText('THE GREAT FENCE DUEL', cx, 30);
+  ctx.restore();
+
+  // Active Turn Pill Banner
+  if (winner === -1) {
+    const isP1 = turn === 0;
+    const p = isP1 ? PALETTE.p1 : PALETTE.p2;
+    const pillW = 340, pillH = 34, py = 58;
+
+    ctx.save();
+    rr(ctx, cx - pillW / 2, py - pillH / 2, pillW, pillH, 17);
+    ctx.fillStyle = 'rgba(15, 23, 42, 0.85)';
+    ctx.fill();
+    ctx.strokeStyle = p.main;
+    ctx.lineWidth = 2.5;
+    ctx.stroke();
+
+    // Sheep icon + Turn text
+    ctx.font = `900 14px ${FONT}`;
+    ctx.textAlign = 'center';
+    ctx.textBaseline = 'middle';
+    ctx.fillStyle = '#ffffff';
+    const turnText = isP1 ? '🐑 BLUE SHEEP’S TURN' : '🐑 PINK SHEEP’S TURN';
+    ctx.fillText(turnText, cx, py);
+    ctx.restore();
+  }
+}
+
+function drawBottomHelp() {
+  const cx = W / 2, cy = 692;
+
+  ctx.save();
+  ctx.font = `700 12px ${FONT}`;
+  ctx.textAlign = 'center';
+  ctx.textBaseline = 'middle';
+  ctx.fillStyle = 'rgba(255, 255, 255, 0.72)';
+  ctx.fillText('🖱️ MOUSE: Click tile to move • Click groove to fence | ⌨️ KEYS: WASD/Arrows • Space: Confirm • R: Rotate • Tab: Switch Action', cx, cy);
+  ctx.restore();
+}
+
+function drawVictoryScreen() {
+  if (winner === -1) return;
+  const p = winner === 0 ? PALETTE.p1 : PALETTE.p2;
+  const cx = W / 2;
+
+  ctx.save();
+  // Translucent backdrop
+  ctx.fillStyle = 'rgba(15, 23, 42, 0.78)';
+  ctx.fillRect(0, 0, W, H);
+
+  // Victory Card
+  const cw = 440, ch = 240;
+  rr(ctx, cx - cw / 2, H / 2 - ch / 2, cw, ch, 24);
+  ctx.fillStyle = '#ffffff';
+  ctx.fill();
+  ctx.strokeStyle = p.main;
+  ctx.lineWidth = 5;
+  ctx.stroke();
+
+  // Winner Sheep Avatar
+  drawCuteSheep(cx, H / 2 - 45, 42, winner, true);
+
+  // Winner Text
+  ctx.font = `900 28px ${FONT}`;
+  ctx.textAlign = 'center';
+  ctx.textBaseline = 'middle';
+  ctx.fillStyle = p.dark;
+  ctx.fillText(`👑 ${p.name.toUpperCase()} WINS! 👑`, cx, H / 2 + 25);
+
+  ctx.font = `700 14px ${FONT}`;
+  ctx.fillStyle = '#475569';
+  ctx.fillText('Goal reached across the fence maze!', cx, H / 2 + 55);
+
+  // Restart Button
+  const btn = getButtons().restartBtn;
+  rr(ctx, btn.x, btn.y - 12, btn.w, btn.h, 23);
+  const bg = ctx.createLinearGradient(0, btn.y - 12, 0, btn.y + btn.h - 12);
+  bg.addColorStop(0, '#22c55e');
+  bg.addColorStop(1, '#16a34a');
+  ctx.fillStyle = bg;
+  ctx.fill();
+  ctx.strokeStyle = '#ffffff';
+  ctx.lineWidth = 2.5;
+  ctx.stroke();
+
+  ctx.font = `900 16px ${FONT}`;
+  ctx.fillStyle = '#ffffff';
+  ctx.fillText('⚡ PLAY AGAIN', cx, btn.y + 11);
+
+  ctx.restore();
+}
+
+function drawParticles() {
+  for (let i = particles.length - 1; i >= 0; i--) {
+    const pt = particles[i];
+    pt.life -= 0.016;
+    if (pt.life <= 0) {
+      particles.splice(i, 1);
+      continue;
+    }
+    pt.x += pt.vx * 0.016;
+    pt.y += pt.vy * 0.016;
+    pt.vx *= 0.94;
+    pt.vy *= 0.94;
+
+    const alpha = clamp(pt.life / pt.max, 0, 1);
+    ctx.globalAlpha = alpha;
+    ctx.fillStyle = pt.color;
+    circle(pt.x, pt.y, pt.size * alpha);
+    ctx.fill();
+  }
+  ctx.globalAlpha = 1;
+}
+
+/* ==========================================================================
+   MAIN GAME LOOP
+   ========================================================================== */
+function render() {
+  ctx.setTransform(scale, 0, 0, scale, 0, 0);
+  ctx.clearRect(0, 0, W, H);
+
+  // 1. Static Tabletop Background & Board Base
+  drawTabletop();
+
+  // 2. Board Grid & Tiles
+  drawBoardGrid();
+
+  // 3. Fences (Placed & Ghost Preview)
+  drawFences();
+
+  // 4. Pawns (Sheep Characters)
+  drawPawns();
+
+  // 5. Particles
+  drawParticles();
+
+  // 6. Side Panels (P1 & P2 Cards)
+  drawPlayerCard(0);
+  drawPlayerCard(1);
+
+  // 7. Header Turn Banner & Bottom Help
+  drawTopHeader();
+  drawBottomHelp();
+
+  // 8. Victory Modal
+  drawVictoryScreen();
+}
+
+let lastTime = performance.now();
+function loop(now) {
+  const dt = Math.min(0.05, (now - lastTime) / 1000);
+  lastTime = now;
+  time += dt;
+
+  render();
+  requestAnimationFrame(loop);
+}
+
+// Initial Setup
+resize();
+updateValidMoves();
+requestAnimationFrame(loop);
+
+</script>
+</body>
+</html>
